@@ -12,6 +12,7 @@
 data/raw/
 data/interim/
 data/processed/
+outputs/
 cache/
 checkpoints/
 

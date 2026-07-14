@@ -8,8 +8,8 @@ authors = []
 
 # --- TRACK B: runs anywhere, even on a laptop. No GPU. ---
 dependencies = [
-    "numpy>=1.26,<2.2",
-    "pandas>=2.2",
+    "numpy>=1.26",
+    "pandas>=2.2,<3.0",
     "pyarrow>=16.0",          # parquet writing
     "scipy>=1.13",
     "scikit-learn>=1.5",
@@ -28,7 +28,7 @@ dependencies = [
 tribe = [
     "torch>=2.4",
     "huggingface-hub>=0.24",
-    "transformers>=4.44",
+    "transformers>=4.44,<5.0",
     "nibabel>=5.2",           # fsaverage5 mesh
     "nilearn>=0.10",          # parcellation + cortical plotting
 ]
@@ -37,7 +37,11 @@ tribe = [
 llm = [
     "accelerate>=0.33",
     "bitsandbytes>=0.43",     # 4-bit quantization to fit 8B on a T4
-    "sentence-transformers>=3.0",  # semantic coverage, §5.4
+]
+
+# Semantic coverage validation (§5.4). Track B, runs locally on CPU.
+validation = [
+    "sentence-transformers>=3.0",
 ]
 
 dev = [
