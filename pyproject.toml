@@ -1,0 +1,61 @@
+[project]
+name = "neurotutorsim"
+version = "0.1.0"
+description = "Computational study of traditional and AI-mediated education"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+authors = []
+
+# --- TRACK B: runs anywhere, even on a laptop. No GPU. ---
+dependencies = [
+    "numpy>=1.26,<2.2",
+    "pandas>=2.2",
+    "pyarrow>=16.0",          # parquet writing
+    "scipy>=1.13",
+    "scikit-learn>=1.5",
+    "statsmodels>=0.14",      # hierarchical models, §11
+    "sympy>=1.12",            # symbolic validation of answers, §5.4
+    "textstat>=0.7",          # Flesch-Kincaid, §5.4
+    "pydantic>=2.7",          # validated schemas for config
+    "pyyaml>=6.0",
+    "tqdm>=4.66",
+    "matplotlib>=3.9",
+    "seaborn>=0.13",
+]
+
+[project.optional-dependencies]
+# --- TRACK A: only on Colab with a GPU. Do not install on a laptop. ---
+tribe = [
+    "torch>=2.4",
+    "huggingface-hub>=0.24",
+    "transformers>=4.44",
+    "nibabel>=5.2",           # fsaverage5 mesh
+    "nilearn>=0.10",          # parcellation + cortical plotting
+]
+
+# Optional behavioral engine (Minitaur). Sample validation only.
+llm = [
+    "accelerate>=0.33",
+    "bitsandbytes>=0.43",     # 4-bit quantization to fit 8B on a T4
+    "sentence-transformers>=3.0",  # semantic coverage, §5.4
+]
+
+dev = [
+    "pytest>=8.2",
+    "pytest-cov>=5.0",
+    "ruff>=0.5",
+    "jupyter>=1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100

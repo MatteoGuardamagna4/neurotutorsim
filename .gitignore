@@ -1,1 +1,49 @@
+# ==========================================================
+# HEAVY DATA
+# ==========================================================
+*.parquet
+*.npy
+*.npz
+*.pt
+*.pth
+*.safetensors
+*.h5
+
+data/raw/
+data/interim/
+data/processed/
+cache/
+checkpoints/
+
+# ==========================================================
 .env
+.env.*
+# ==========================================================
+#PYTHON ENVIRONMENT, uv lock needs to be committed for reproducibility
+# ==========================================================
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ==========================================================
+# ==========================================================
+.ipynb_checkpoints/
+
+# System
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Repo TRIBE
+tribev2/
+
+CLAUDE.md
