@@ -3,7 +3,10 @@ name = "neurotutorsim"
 version = "0.1.0"
 description = "Computational study of traditional and AI-mediated education"
 readme = "README.md"
-requires-python = ">=3.10,<3.13"
+# Floor is 3.11 (not 3.10): tribev2 requires >=3.11, and pinning the whole
+# project here lets uv pick a compatible interpreter without a .python-version
+# file. Ceiling <3.13 keeps the resolved wheel set (torch cu124 etc.) known-good.
+requires-python = ">=3.11,<3.13"
 authors = []
 
 # --- TRACK B: runs anywhere, even on a laptop. No GPU. ---
@@ -27,20 +30,21 @@ dependencies = [
 # --- TRACK A: only on Colab with a GPU. Do not install on a laptop. ---
 # torch and torchaudio MUST resolve to the same version, or torchaudio's C
 # extension fails to load with `undefined symbol: aoti_torch_abi_version`.
-# tribev2 caps torch at <2.7 (and needs torchvision); pinning all three here and
-# letting uv.lock freeze the exact versions guarantees a matched ABI on Colab.
+# tribev2 caps torch at <2.7 (and needs torchvision); pinned to an exact matched
+# trio (torch 2.6.0 / torchaudio 2.6.0 / torchvision 0.21.0) built for CUDA 12.4.
+# The cu124 wheels are pulled from the PyTorch index (see [tool.uv] below).
 tribe = [
-    "torch>=2.5.1,<2.7",
-    "torchaudio>=2.5.1,<2.7",     # matched to torch; torchaudio pins torch exactly
-    "torchvision>=0.20,<0.22",    # required by tribev2
+    "torch==2.6.0",
+    "torchaudio==2.6.0",          # matched to torch; torchaudio pins torch exactly
+    "torchvision==0.21.0",        # required by tribev2
     "huggingface-hub>=0.24",
     "transformers>=4.44,<5.0",
     "nibabel>=5.2",           # fsaverage5 mesh
     "nilearn>=0.10",          # parcellation + cortical plotting
     # TRIBE v2 itself, pinned to an exact commit (CLAUDE.md / brief §6.1) so the
-    # whole Track A stack is reproducible from uv.lock. Gated to py>=3.11 because
-    # tribev2 requires it; this keeps Track B (laptop) usable on Python 3.10.
-    "tribev2[plotting] @ git+https://github.com/facebookresearch/tribev2.git@af58661791a351a448a489042a28f6c37e1c14b7 ; python_full_version >= '3.11'",
+    # whole Track A stack is reproducible from uv.lock. No python marker needed:
+    # the project floor (requires-python >=3.11) already satisfies tribev2.
+    "tribev2[plotting] @ git+https://github.com/facebookresearch/tribev2.git@af58661791a351a448a489042a28f6c37e1c14b7",
 ]
 
 # Optional behavioral engine (Minitaur). Sample validation only.
@@ -61,9 +65,28 @@ dev = [
     "jupyter>=1.0",
 ]
 
+# torch/torchaudio/torchvision cu124 wheels live on the PyTorch index, not PyPI.
+# `explicit = true` means only the packages mapped in [tool.uv.sources] below are
+# fetched from here; everything else stays on PyPI. This is the pyproject
+# equivalent of `--index-url https://download.pytorch.org/whl/cu124`.
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu124" }
+torchaudio = { index = "pytorch-cu124" }
+torchvision = { index = "pytorch-cu124" }
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+# tribev2 is a `@ git+https://…` direct reference (tribe extra); hatchling
+# rejects direct references in metadata unless this is explicitly allowed.
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
