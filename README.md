@@ -45,7 +45,7 @@ end. Inference is idempotent: a stimulus whose parquet already exists on Drive i
 a dropped session resumes rather than restarts.
 
 ```text
-Colab (GPU, disposable)                         Google Drive (persistent, 15 GB)
+Colab (GPU, disposable)                         Google Drive (persistent, 15 TB)
 ──────────────────────                          ────────────────────────────────
 clone repo ──► import src/ ──► TRIBE inference ──► parquet written per-stimulus, in-loop
                                      ▲                          │
