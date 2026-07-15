@@ -56,64 +56,6 @@ clone repo ──► import src/ ──► TRIBE inference ──► parquet wri
 Secrets (the `HF_TOKEN` gating access to Llama-3.2-3B) live in **Colab Secrets (🔑)**, never
 in a file or a cell.
 
-### Required Colab notebook snippets
-
-Every Track A notebook must open with these cells (in order). They are boilerplate — the
-scientific logic stays in `src/`.
-
-**1. Mount Drive** (the persistence layer):
-
-```python
-from google.colab import drive
-drive.mount("/content/drive")
-```
-
-**2. Clone the repo and install the GPU stack.** `tribev2` is not on PyPI and is pinned to a
-commit hash — never `main` (§6.1):
-
-```python
-!git clone https://github.com/MatteoGuardamagna4/neurotutorsim.git
-%cd neurotutorsim
-!pip install -q uv
-!uv sync --frozen --active --extra tribe --extra llm
-```
-
-**3. Load secrets** from Colab Secrets (🔑) — sets the token TRIBE needs to reach the gated
-Llama text encoder:
-
-```python
-import os
-from google.colab import userdata
-os.environ["HF_TOKEN"] = userdata.get("HF_TOKEN")
-```
-
-**4. Import from `src/`** — call project functions, don't reimplement them in the cell:
-
-```python
-import sys
-sys.path.insert(0, "/content/neurotutorsim")
-
-from src.tribe.inference import run_inference      # Track A entry point
-from src.tribe.aggregate import vertex_to_parcel   # eq. 6-7
-```
-
-**5. Define saving paths on Drive and write idempotently, inside the loop:**
-
-```python
-from pathlib import Path
-
-DRIVE_ROOT = Path("/content/drive/MyDrive/neurotutorsim")
-OUT_PARCEL = DRIVE_ROOT / "outputs" / "tribe" / "parcel"   # ~200 KB/stimulus
-OUT_PARCEL.mkdir(parents=True, exist_ok=True)
-
-for stimulus in corpus:
-    out_path = OUT_PARCEL / f"{stimulus.id}.parquet"
-    if out_path.exists():
-        continue                     # §4.3: never silently regenerate an existing item
-    Z = run_inference(stimulus)      # heavy GPU work
-    vertex_to_parcel(Z).to_parquet(out_path)   # write to Drive immediately
-```
-
 ## Layout
 
 ```text
