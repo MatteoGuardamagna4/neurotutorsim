@@ -75,8 +75,8 @@ reports/
 src/
 ├── generation/                      # teaching-corpus generation
 ├── validation/                      # correctness, coverage, leakage, matching validators
-│   ├── validators.py
-│   └── test_validators.py
+│   ├── validators.py                # actual answers validation
+│   └── test_validators.py           # checking correctness of validators
 ├── tribe/                           # TRIBE inference + vertex→parcel/network aggregation
 ├── learners/                        # synthetic learners, knowledge tracing
 ├── plasticity/                      # plasticity models A/B/C/D
