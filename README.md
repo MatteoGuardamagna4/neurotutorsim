@@ -59,19 +59,33 @@ in a file or a cell.
 ## Layout
 
 ```text
-config/              # run configuration
+config/
 data/
+├── DATA_DICTIONARY.md
+├── raw/
+│   └── bda.example_concept_maps.json
+├── interim/
+└── processed/
 notebooks/
+└── 00_tribe_demo.ipynb
 outputs/
+├── figures/
+└── tables/
 reports/
 src/
-├── generation/      # teaching-corpus generation
-├── validation/      # correctness, coverage, leakage, matching validators
-├── tribe/           # TRIBE inference + vertex→parcel/network aggregation
-├── learners/        # synthetic learners, knowledge tracing
-├── plasticity/      # plasticity models A/B/C/D
-├── analysis/        # scenario contrasts, specification curve
-└── visualization/   # figures
+├── generation/                      # teaching-corpus generation
+├── validation/                      # correctness, coverage, leakage, matching validators
+│   ├── validators.py
+│   └── test_validators.py
+├── tribe/                           # TRIBE inference + vertex→parcel/network aggregation
+├── learners/                        # synthetic learners, knowledge tracing
+├── plasticity/                      # plasticity models A/B/C/D
+├── analysis/                        # scenario contrasts, specification curve
+└── visualization/                   # figures
 stimuli/
-tests/               # package-structure gate + unit tests
+├── traditional/
+├── ai_scaffolding/
+└── ai_substitution/
+tests/
+└── test_imports.py                  # package-structure gate
 ```
