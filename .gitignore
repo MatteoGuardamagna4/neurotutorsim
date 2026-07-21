@@ -10,8 +10,12 @@
 *.h5
 
 data/raw/
-data/interim/
-data/processed/
+data/interim/*
+!data/interim/units/
+data/interim/units/*
+!data/interim/units/be_001.json
+data/processed/*
+!data/processed/units.csv
 outputs/
 cache/
 checkpoints/

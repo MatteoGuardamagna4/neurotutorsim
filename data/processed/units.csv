@@ -1,0 +1,2 @@
+unit_id,domain,concept,difficulty,prerequisites,validator_reference,validator_reference_params,reference_answer,validator_transfer,validator_transfer_params,transfer_answer
+be_001,managerial_accounting,break_even_via_contribution_margin,2,,break_even_quantity,"{""fixed_costs"": 120000, ""price"": 80, ""variable_cost"": 50}",4000,price_for_break_even_quantity,"{""fixed_costs"": 90000, ""quantity"": 3000, ""variable_cost"": 12}",42

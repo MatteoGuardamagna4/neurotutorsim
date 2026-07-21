@@ -1,0 +1,47 @@
+---
+stimulus_id: be_001_ai_substitution_primary
+unit_id: be_001
+condition: ai_substitution
+variant: primary
+example_count: 1
+learner_error_scripted: true
+---
+TUTOR: Let's work through a break-even problem together. A company has
+fixed costs of EUR 120,000 per year. Each unit sells for EUR 80 and costs
+EUR 50 in variable costs. How many units must it sell to break even? Give
+it a try first, then I'll walk you through it.
+
+LEARNER: That's easy, 120,000 divided by 80 is 1,500. So the company needs
+to sell 1,500 units to break even.
+
+TUTOR: Not quite. You divided fixed costs by the selling price, but part
+of that EUR 80 price pays for the variable cost of making each unit, it
+does not all go toward fixed costs. Here is the full calculation. First,
+find the contribution margin: price minus variable cost, EUR 80 minus EUR
+50 equals EUR 30. That EUR 30 is what each unit actually contributes
+toward covering fixed costs after production cost is paid. Second, divide
+total fixed costs by that contribution margin instead of by price: EUR
+120,000 divided by EUR 30 equals 4,000. So the company must sell 4,000
+units per year to break even, not 1,500. Your instinct to divide fixed
+costs by something was correct, the only fix needed is to divide by the
+contribution margin, EUR 30, rather than by the full price, EUR 80.
+
+LEARNER: I see, so 1,500 was wrong because it ignored the variable cost
+entirely. I thought the whole price counted toward paying off the fixed
+costs, which is where I went wrong.
+
+TUTOR: Exactly right. Dividing by price alone assumes every euro of
+revenue is free to pay off fixed costs, when in reality EUR 50 of every
+EUR 80 sale is already spent on production. Only the remaining EUR 30 per
+unit, the contribution margin, is available for that purpose, which is why
+it belongs in the denominator instead of the price. Keep this formula
+handy for the rest of the unit: break-even quantity equals fixed costs
+divided by the contribution margin, and the contribution margin is always
+price minus variable cost. Apply that same two-step method, find the
+margin, then divide, to the practice problem that follows this one, and
+you will arrive at the correct break-even quantity directly without
+needing to try a different approach first. If the numbers ever change,
+recompute the margin before you divide, never divide fixed costs by price
+alone. Fixed costs, price, and variable cost are the only three inputs
+this formula ever needs, so write them down first and the rest of the
+calculation follows in just two short steps.

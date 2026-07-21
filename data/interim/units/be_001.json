@@ -1,0 +1,35 @@
+{
+  "unit_id": "be_001",
+  "domain": "managerial_accounting",
+  "concept": "break_even_via_contribution_margin",
+  "difficulty": 2,
+  "prerequisites": [],
+  "canonical_problem": {
+    "prompt": "A company has fixed costs of EUR 120,000 per year. Each unit sells for EUR 80 and costs EUR 50 in variable costs. How many units must it sell to break even?",
+    "validator": "break_even_quantity",
+    "params": {"fixed_costs": 120000, "price": 80, "variable_cost": 50},
+    "answer": 4000
+  },
+  "common_misconception": {
+    "description": "Dividing fixed costs by price instead of by contribution margin, i.e. ignoring variable costs.",
+    "wrong_answer": 1500,
+    "wrong_method": "120000 / 80"
+  },
+  "practice_problem": {
+    "validator": "break_even_quantity",
+    "params": {"fixed_costs": 45000, "price": 25, "variable_cost": 10},
+    "answer": 3000
+  },
+  "near_transfer": {
+    "prompt": "Same cost structure as the canonical problem. How many units are needed to earn a profit of EUR 60,000?",
+    "validator": "target_profit_quantity",
+    "params": {"fixed_costs": 120000, "target_profit": 60000, "price": 80, "variable_cost": 50},
+    "answer": 6000
+  },
+  "far_transfer": {
+    "prompt": "A subscription business has fixed costs of EUR 90,000 and variable costs of EUR 12 per subscriber. What monthly price lets it break even at 3,000 subscribers?",
+    "validator": "price_for_break_even_quantity",
+    "params": {"fixed_costs": 90000, "quantity": 3000, "variable_cost": 12},
+    "answer": 42
+  }
+}

@@ -1,0 +1,59 @@
+---
+stimulus_id: be_001_traditional_primary
+unit_id: be_001
+condition: traditional
+variant: primary
+example_count: 1
+learner_error_scripted: false
+---
+Break-even analysis answers a simple question: how many units must a company
+sell before it stops losing money and starts making a profit? To answer it,
+you need three numbers: fixed costs, the price of one unit, and the variable
+cost of producing one unit.
+
+Fixed costs are expenses that do not change with the number of units
+produced, such as rent, salaries, and insurance. Variable costs change
+directly with production, such as materials, packaging, and per-unit labor.
+The difference between the selling price and the variable cost of one unit
+is called the contribution margin. It is the amount each unit sale
+contributes toward covering fixed costs, before any profit begins.
+
+The break-even formula divides total fixed costs by the per-unit
+contribution margin:
+
+Break-even quantity = Fixed Costs / (Price - Variable Cost)
+
+Once enough units have been sold to cover fixed costs exactly, every
+additional unit sold contributes its full margin directly to profit.
+
+Worked example: A company has fixed costs of EUR 120,000 per year. Each unit
+sells for EUR 80 and costs EUR 50 in variable costs to produce. The
+contribution margin per unit is EUR 80 minus EUR 50, or EUR 30. Dividing
+fixed costs by that margin gives EUR 120,000 divided by EUR 30, which is
+4,000 units. The company must sell 4,000 units per year to break even.
+Selling fewer than 4,000 units means a loss; selling more means a profit of
+EUR 30 for every additional unit sold.
+
+A common mistake is dividing fixed costs by price instead of by the
+contribution margin, that is, forgetting to subtract variable costs first.
+This ignores the fact that each unit also costs money to produce, and it
+will always produce an answer that is too low.
+
+If you get stuck on a break-even problem, work through these hints in
+order.
+
+Hint 1, general: identify the three numbers you have, fixed costs, price,
+and variable cost, before doing any arithmetic.
+
+Hint 2, more specific: compute the contribution margin first, price minus
+variable cost. Do not divide by price alone.
+
+Hint 3, most specific: divide fixed costs by the contribution margin you
+just computed. The result is the number of units needed to break even.
+
+Practice the formula until the sequence, find the margin, then divide,
+becomes automatic. It is the same three-step logic behind every
+break-even, target-profit, and break-even-price problem in this unit. Fixed
+costs do not vanish just because sales are slow; they must be covered
+before a single euro of profit exists, and the contribution margin is the
+only bridge between a unit sold and that goal reached.

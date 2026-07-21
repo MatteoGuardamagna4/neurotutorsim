@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from statistics import NormalDist
 from typing import Any, Callable, Dict
 
 # --------------------------------------------------------------------------- #
@@ -98,77 +97,65 @@ def _symbolic_equal(a: Any, b: Any) -> bool:
 
 
 # --------------------------------------------------------------------------- #
-# Domain 1 -- Bayesian Decision Analysis
+# Domain -- Managerial Accounting / Break-even analysis
 # --------------------------------------------------------------------------- #
 
-@register("bayes_posterior")
-def bayes_posterior(*, prior: float, sensitivity: float, false_positive_rate: float) -> float:
-    """P(H | positive evidence) for a binary hypothesis and binary test."""
-    p_evidence = sensitivity * prior + false_positive_rate * (1 - prior)
-    if p_evidence == 0:
-        raise ValueError("P(evidence) is zero; check inputs")
-    return sensitivity * prior / p_evidence
+def _check_contribution_margin(price: float, variable_cost: float) -> None:
+    if price <= variable_cost:
+        raise ValueError(
+            f"price ({price}) must exceed variable_cost ({variable_cost}); "
+            "break-even is undefined when the contribution margin is non-positive"
+        )
 
 
-@register("expected_value")
-def expected_value(*, payoffs: list[float], probs: list[float]) -> float:
-    """Expected monetary value of a decision with discrete outcomes."""
-    if len(payoffs) != len(probs):
-        raise ValueError("payoffs and probs must be the same length")
-    if not math.isclose(sum(probs), 1.0, abs_tol=1e-9):
-        raise ValueError(f"probs must sum to 1, got {sum(probs)}")
-    return sum(p * v for p, v in zip(probs, payoffs))
+@register("break_even_quantity")
+def break_even_quantity(*, fixed_costs: float, price: float, variable_cost: float) -> float:
+    """Units required to break even: FC / (P - VC)."""
+    if fixed_costs < 0:
+        raise ValueError(f"fixed_costs must be >= 0, got {fixed_costs}")
+    _check_contribution_margin(price, variable_cost)
+    return fixed_costs / (price - variable_cost)
 
 
-@register("evpi")
-def evpi(*, payoffs_by_state: list[list[float]], state_probs: list[float]) -> float:
-    """Expected Value of Perfect Information.
-
-    payoffs_by_state[s][a] = payoff of action a if state s occurs.
-    """
-    n_actions = len(payoffs_by_state[0])
-    ev_action = [
-        sum(state_probs[s] * payoffs_by_state[s][a] for s in range(len(state_probs)))
-        for a in range(n_actions)
-    ]
-    ev_best_action = max(ev_action)
-    ev_with_info = sum(
-        state_probs[s] * max(payoffs_by_state[s]) for s in range(len(state_probs))
-    )
-    return ev_with_info - ev_best_action
+@register("break_even_revenue")
+def break_even_revenue(*, fixed_costs: float, price: float, variable_cost: float) -> float:
+    """Revenue at break-even: break_even_quantity * price."""
+    return break_even_quantity(fixed_costs=fixed_costs, price=price, variable_cost=variable_cost) * price
 
 
-# --------------------------------------------------------------------------- #
-# Domain 2 -- Causal Inference / A-B testing
-# --------------------------------------------------------------------------- #
-
-@register("two_proportion_z")
-def two_proportion_z(*, x_a: int, n_a: int, x_b: int, n_b: int) -> float:
-    """Pooled two-proportion z statistic for a conversion-rate A/B test."""
-    p_a, p_b = x_a / n_a, x_b / n_b
-    p_pool = (x_a + x_b) / (n_a + n_b)
-    se = math.sqrt(p_pool * (1 - p_pool) * (1 / n_a + 1 / n_b))
-    if se == 0:
-        raise ValueError("standard error is zero; check inputs")
-    return (p_b - p_a) / se
+@register("target_profit_quantity")
+def target_profit_quantity(
+    *, fixed_costs: float, target_profit: float, price: float, variable_cost: float
+) -> float:
+    """Units required to earn target_profit: (FC + target) / (P - VC)."""
+    if fixed_costs < 0:
+        raise ValueError(f"fixed_costs must be >= 0, got {fixed_costs}")
+    _check_contribution_margin(price, variable_cost)
+    return (fixed_costs + target_profit) / (price - variable_cost)
 
 
-@register("ab_sample_size")
-def ab_sample_size(*, baseline: float, mde: float, alpha: float = 0.05, power: float = 0.8) -> int:
-    """Per-group sample size for a two-proportion test (rounded up)."""
-    p1 = baseline
-    p2 = baseline + mde
-    z_alpha = NormalDist().inv_cdf(1 - alpha / 2)
-    z_beta = NormalDist().inv_cdf(power)
-    numerator = (z_alpha + z_beta) ** 2 * (p1 * (1 - p1) + p2 * (1 - p2))
-    return math.ceil(numerator / (p2 - p1) ** 2)
+@register("price_for_break_even_quantity")
+def price_for_break_even_quantity(*, fixed_costs: float, quantity: float, variable_cost: float) -> float:
+    """Price that breaks even at a given quantity: FC / Q + VC."""
+    if fixed_costs < 0:
+        raise ValueError(f"fixed_costs must be >= 0, got {fixed_costs}")
+    if quantity <= 0:
+        raise ValueError(f"quantity must be > 0, got {quantity}")
+    return fixed_costs / quantity + variable_cost
+
+
+@register("contribution_margin_ratio")
+def contribution_margin_ratio(*, price: float, variable_cost: float) -> float:
+    """Contribution margin ratio: (P - VC) / P."""
+    _check_contribution_margin(price, variable_cost)
+    return (price - variable_cost) / price
 
 
 # --------------------------------------------------------------------------- #
 # Symbolic example (demonstrates the SymPy path required by §5.4)
 # --------------------------------------------------------------------------- #
 
-@register("bernoulli_variance_expr", kind="symbolic")
-def bernoulli_variance_expr(*, p_symbol: str = "p") -> str:
-    """Canonical variance of a Bernoulli(p): p*(1-p)."""
-    return f"{p_symbol}*(1-{p_symbol})"
+@register("contribution_margin_expr", kind="symbolic")
+def contribution_margin_expr(*, price_symbol: str = "P", vc_symbol: str = "V") -> str:
+    """Symbolic contribution margin: P - V."""
+    return f"{price_symbol} - {vc_symbol}"

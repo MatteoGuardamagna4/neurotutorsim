@@ -1,0 +1,53 @@
+---
+stimulus_id: be_001_ai_scaffolding_primary
+unit_id: be_001
+condition: ai_scaffolding
+variant: primary
+example_count: 1
+learner_error_scripted: true
+---
+TUTOR: Let's work through a break-even problem together. A company has
+fixed costs of EUR 120,000 per year. Each unit sells for EUR 80 and costs
+EUR 50 in variable costs. How many units must it sell to break even? There
+is a formula for this, but I want to see how you'd approach it first. Give
+it a try and show me your work before I say anything else.
+
+LEARNER: That's easy, 120,000 divided by 80 is 1,500. So the company needs
+to sell 1,500 units to break even.
+
+TUTOR: Hint: before you divide, remember that part of each unit's EUR 80
+price pays for the variable cost of actually making that unit. Only the
+leftover portion helps cover fixed costs, so dividing by the full price
+skips a step. Think about what happens to each euro of revenue the moment
+a unit is sold, some of it is already spoken for.
+
+LEARNER: Oh, so I shouldn't divide fixed costs by the full price?
+
+TUTOR: Right, not by the full price. What do we call the leftover amount
+after variable cost is subtracted from price, and how would you calculate
+it for this problem?
+
+LEARNER: Is that the contribution margin? EUR 80 minus EUR 50?
+
+TUTOR: Hint: that subtraction is exactly the right move. EUR 80 minus EUR
+50 gives you the contribution margin per unit. Use that number, not the
+raw price, as the divisor in the break-even formula. This margin is the
+part of every sale that is actually free to go toward paying down fixed
+costs, everything else was already spent on production.
+
+LEARNER: Okay, so EUR 80 minus EUR 50 is EUR 30. Then EUR 120,000 divided
+by EUR 30?
+
+TUTOR: That's the right setup. Go ahead and finish it, what does EUR
+120,000 divided by EUR 30 come out to?
+
+LEARNER: EUR 120,000 divided by EUR 30 is 4,000. So 4,000 units.
+
+TUTOR: That's correct, 4,000 units is the break-even quantity. Notice why
+your first attempt of 1,500 came out too low: it treated the whole EUR 80
+price as if it all went toward fixed costs, when EUR 50 of it actually
+covers production cost. Only the remaining EUR 30 contribution margin per
+unit helps pay off the EUR 120,000 in fixed costs, which is why the margin,
+not the price, belongs in the denominator. Carry that same margin-first
+habit into the next practice problem: subtract variable cost from price
+before you divide anything into fixed costs.
