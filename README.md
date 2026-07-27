@@ -56,6 +56,57 @@ clone repo ──► import src/ ──► TRIBE inference ──► parquet wri
 Secrets (the `HF_TOKEN` gating access to Llama-3.2-3B) live in **Colab Secrets (🔑)**, never
 in a file or a cell.
 
+## Phase II: TRIBE inference and neural analysis
+
+Phase II spans brief §6.1–§6.7 plus the §8.2 handoff. It ends at `Z(u,c,p)` — the static
+lookup table that is the only thing Track A hands to Track B.
+
+Run in this order. Steps 1–3 are Track A (Colab GPU); step 4 is Track B (laptop).
+
+```bash
+# 0. one-off: build the parcellation file (needs the Schaefer fsaverage5 .annot files)
+python scripts/build_atlas.py --config config/tribe.yaml
+
+# 1. pin the checkpoint revision (once, after Meta approves Llama-3.2-3B access)
+python scripts/run_tribe_verification.py --config config/tribe.yaml --resolve-revision
+#    paste the SHA into config/tribe.yaml, then:
+python scripts/run_tribe_verification.py --config config/tribe.yaml --write-lock
+
+# 2. decision gate 17: verify the checkpoint, reproduce Meta's official example
+python scripts/run_tribe_verification.py --config config/tribe.yaml
+#    -> outputs/verification/gate17.json + docs/tribe_environment.md
+
+# 3. inference over the corpus (idempotent; skips anything already cached)
+python scripts/run_tribe_inference.py --config config/tribe.yaml \
+    --cache-root /content/drive/MyDrive/NeuroTutorSim/tribe_cache
+
+# 4. analysis: parcel data -> metrics -> contrasts -> RSA -> reports/phase2_report.md
+python scripts/run_neural_analysis.py --config config/tribe.yaml
+```
+
+On Colab, steps 2 and 3 are driven by `notebooks/01_tribe_verification.ipynb` and
+`notebooks/02_tribe_inference.ipynb`. Both are thin: bootstrap cells (GPU check, Drive mount,
+`HF_HOME` **before** any HuggingFace import, `uv pip install --system`, auth from Colab
+Secrets) and then a single call into a script.
+
+Two things are enforced mechanically rather than by convention:
+
+- **Step 3 refuses to run until step 2 has passed** for the pinned revision. `gate_17_passed()`
+  checks `outputs/verification/gate17.json` and compares its revision to the config's.
+- **Step 4 is expected to fail today.** The corpus is one unit; §6.6 and §6.7 need the ten
+  units of decision gate 16, so it stops with a `ValueError` naming that gate. Use
+  `--descriptive-only` for the part that is defined at n ≥ 1 (metrics and paired deltas).
+
+Supporting scripts: `scripts/build_metrics_reference.py` regenerates
+`docs/metrics_reference.md` from the metric docstrings (decision gate 19, `--check` verifies
+it is current); `scripts/build_vertex_retention_set.py` regenerates the list of stimuli whose
+vertex-level output is kept.
+
+Further reading: [`docs/caching_policy.md`](docs/caching_policy.md),
+[`docs/parcellation.md`](docs/parcellation.md),
+[`docs/data_dictionary_phase2.md`](docs/data_dictionary_phase2.md),
+[`docs/metrics_reference.md`](docs/metrics_reference.md).
+
 ## Layout
 
 ```text

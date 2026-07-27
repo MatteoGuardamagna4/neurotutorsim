@@ -20,6 +20,13 @@ outputs/
 cache/
 checkpoints/
 
+# Phase II cache roots. Parcel tables and vertex arrays are build products of a
+# GPU run; reproducibility comes from the pinned revision + config + cache keys,
+# never from committing predictions. See docs/caching_policy.md.
+data/interim/tribe_cache/
+tribe_cache/
+drive_local/
+
 # ==========================================================
 .env
 .env.*
