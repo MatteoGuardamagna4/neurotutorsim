@@ -1,0 +1,18 @@
+# Stimulus ids whose full (T, V) vertex array is retained permanently (§4.5).
+#
+# Everything else is aggregated to parcels and the vertex array is discarded.
+# That discard is IRREVERSIBLE -- a parcel mean cannot be un-averaged back into
+# vertices -- so this file is the only thing standing between a stimulus and
+# permanent loss of its vertex-level detail. Edit deliberately.
+#
+# Policy: retain the `primary` variant of every unit, in every condition
+# (~360 stimuli at the full corpus size, ~3.5 GB). Regenerations and secondary
+# variants are parcel-only.
+#
+# Regenerate with:  python scripts/build_vertex_retention_set.py
+#
+# Current corpus: one unit (be_001). Decision gate 16 (10 pilot units) is open.
+
+be_001_traditional_primary
+be_001_ai_scaffolding_primary
+be_001_ai_substitution_primary

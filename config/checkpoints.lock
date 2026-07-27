@@ -1,0 +1,18 @@
+{
+  "_comment": [
+    "Checksum lock for TRIBE v2 checkpoint files (brief §6.1 items 11-13).",
+    "Keys are '<repo_id>@<40-hex revision>'. Values map a repo-relative file",
+    "path to its sha256. verify_checkpoint() downloads the pinned revision,",
+    "recomputes each hash, and raises on any mismatch or missing entry.",
+    "",
+    "This file is EMPTY until someone with approved Llama-3.2-3B access runs:",
+    "  python scripts/run_tribe_verification.py --config config/tribe.yaml \\",
+    "      --resolve-revision            # prints the real revision SHA",
+    "  python scripts/run_tribe_verification.py --config config/tribe.yaml \\",
+    "      --write-lock                  # records checksums for that revision",
+    "",
+    "--write-lock is deliberately a separate, explicit opt-in: recording a",
+    "checksum you have not verified turns the lock into a rubber stamp."
+  ],
+  "entries": {}
+}

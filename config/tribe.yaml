@@ -1,0 +1,63 @@
+# Phase II configuration (brief §6.1-§6.7, §8.2).
+#
+# Every value here is validated on load by src/tribe/config.py. Unknown keys
+# raise. Nothing is coerced. Several of these fields feed the content-addressed
+# cache key (§4.5), so changing one invalidates cached predictions by design.
+
+# --- Checkpoint identity (§6.1) --------------------------------------------
+checkpoint: facebook/tribev2
+
+# 40-char lowercase hex commit SHA of the HuggingFace model repo. There is NO
+# default and NO branch/tag fallback.
+#
+# The all-zero value below is the documented "unresolved" placeholder: it lets
+# Track B (CPU analysis) load this config, but Track A refuses to run against
+# it. Resolve the real SHA once Llama-3.2-3B access is approved:
+#
+#   python scripts/run_tribe_verification.py --config config/tribe.yaml --resolve-revision
+#
+# then paste the SHA here and into config/checkpoints.lock, and commit both.
+checkpoint_revision: "0000000000000000000000000000000000000000"
+
+precision: fp32          # fp32 | fp16 -- part of the cache key
+batch_size: 1
+
+# --- Timing (§6.2, settled) -------------------------------------------------
+# 220 wpm is the main specification and is authoritative for word onsets:
+#   onset_j = 60 * cumulative_words_before_j / r
+# 180 and 260 are the permitted robustness values. r is part of the cache key.
+reading_rate_wpm: 220.0
+
+# --- Parcellation (§6.4) ----------------------------------------------------
+atlas: schaefer400
+parcel_weighting: area   # area (main) | equal (robustness) -- network aggregation
+atlas_file: data/raw/atlas/schaefer400_fsaverage5.npz
+
+# --- Storage (§6.3 + the CLAUDE.md hybrid deviation) ------------------------
+# Parcel level is kept for every stimulus; vertex level only for the ids listed
+# in the retention file. Parcel averaging is one-way -- discarded vertex data
+# cannot be rebuilt.
+vertex_retention_set: config/vertex_retention_set.txt
+cache_root: data/interim/tribe_cache      # Colab overrides with the Drive path
+checkpoints_lock: config/checkpoints.lock
+
+master_seed: 20250727
+
+# --- Neural metrics (§6.5) --------------------------------------------------
+metrics:
+  tr_seconds: 1.0                 # TRIBE v2 emits one prediction per second
+  instructional_window_s: null    # null = the whole stimulus
+  smoothing_kernel: boxcar        # boxcar | gaussian
+  smoothing_width_s: 3.0
+  baseline_percentile: 10.0       # stimulus-specific baseline = this percentile
+  sustained_threshold_sd: 1.0     # "sustained" = baseline + k * SD
+
+# --- Contrasts, RSA, standardization (§6.6, §6.7, §8.2) ---------------------
+analysis:
+  n_bootstrap: 2000
+  n_permutations: 5000
+  winsor_lower_pct: 1.0
+  winsor_upper_pct: 99.0
+  # Number of units the full corpus is declared to contain. §8.2 standardizes
+  # against corpus-wide moments, so standardize_auc refuses to run on fewer.
+  corpus_n_units: 10
