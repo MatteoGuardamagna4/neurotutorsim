@@ -60,6 +60,40 @@ def parse_front_matter(path: Path) -> Tuple[Dict[str, Any], str]:
     return meta, body
 
 
+#: Front-matter keys every stimulus must declare for Phase II to index it.
+INDEX_KEYS = ("stimulus_id", "unit_id", "condition", "variant")
+
+
+def build_stimulus_index(root: Path) -> Dict[str, Dict[str, Any]]:
+    """Index every `stimuli/<condition>/*.txt` under `root` by stimulus_id.
+
+    Each entry carries the front matter plus the stripped `body` and the source
+    `path`. Phase II needs this because a cached prediction is keyed only by
+    stimulus_id, while contrasts (§6.6) and RSA (§6.7) are organised by unit and
+    condition -- and those are declared in the front matter, never inferred by
+    slicing the id string.
+
+    Raises on a missing key or a duplicate stimulus_id: both would silently
+    misattribute a prediction to the wrong unit or condition.
+    """
+    index: Dict[str, Dict[str, Any]] = {}
+    for path in sorted(Path(root).glob("stimuli/*/*.txt")):
+        meta, body = parse_front_matter(path)
+        missing = [key for key in INDEX_KEYS if key not in meta]
+        if missing:
+            raise ValueError(f"{path}: front matter is missing {missing}")
+        stimulus_id = str(meta["stimulus_id"])
+        if stimulus_id in index:
+            raise ValueError(
+                f"duplicate stimulus_id {stimulus_id!r} in {path} and "
+                f"{index[stimulus_id]['path']}"
+            )
+        index[stimulus_id] = {**meta, "body": body, "path": str(path)}
+    if not index:
+        raise ValueError(f"no stimuli found under {Path(root) / 'stimuli'}")
+    return index
+
+
 def _coerce(value: str) -> Any:
     if value.lower() == "true":
         return True
