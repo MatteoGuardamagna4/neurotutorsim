@@ -47,6 +47,19 @@ tribe = [
     "tribev2[plotting] @ git+https://github.com/facebookresearch/tribev2.git@af58661791a351a448a489042a28f6c37e1c14b7",
 ]
 
+# Atlas build only (scripts/build_atlas.py). CPU, no GPU, no torch.
+#
+# These two are also in `tribe` above, because Track A inference needs them in
+# the same environment. They are repeated here so the one-off parcellation build
+# does not require the 2.5 GB CUDA stack: `scripts/build_atlas.py` needs neither
+# a GPU nor a HuggingFace token, and is not blocked by the Llama-3.2-3B gating.
+# Version floors are kept identical to `tribe` so a single uv.lock resolution
+# serves both extras.
+atlas = [
+    "nibabel>=5.2",           # read the FreeSurfer .annot label files
+    "nilearn>=0.10",          # fetch the fsaverage5 mesh
+]
+
 # Optional behavioral engine (Minitaur). Sample validation only.
 llm = [
     "accelerate>=0.33",

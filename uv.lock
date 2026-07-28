@@ -1654,6 +1654,10 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+atlas = [
+    { name = "nibabel" },
+    { name = "nilearn" },
+]
 dev = [
     { name = "jupyter" },
     { name = "pytest" },
@@ -1685,7 +1689,9 @@ requires-dist = [
     { name = "huggingface-hub", marker = "extra == 'tribe'", specifier = ">=0.24" },
     { name = "jupyter", marker = "extra == 'dev'", specifier = ">=1.0" },
     { name = "matplotlib", specifier = ">=3.9" },
+    { name = "nibabel", marker = "extra == 'atlas'", specifier = ">=5.2" },
     { name = "nibabel", marker = "extra == 'tribe'", specifier = ">=5.2" },
+    { name = "nilearn", marker = "extra == 'atlas'", specifier = ">=0.10" },
     { name = "nilearn", marker = "extra == 'tribe'", specifier = ">=0.10" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "pandas", specifier = ">=2.2,<3.0" },
@@ -1709,7 +1715,7 @@ requires-dist = [
     { name = "transformers", marker = "extra == 'tribe'", specifier = ">=4.44,<5.0" },
     { name = "tribev2", extras = ["plotting"], marker = "extra == 'tribe'", git = "https://github.com/facebookresearch/tribev2.git?rev=af58661791a351a448a489042a28f6c37e1c14b7" },
 ]
-provides-extras = ["tribe", "llm", "validation", "dev"]
+provides-extras = ["tribe", "atlas", "llm", "validation", "dev"]
 
 [[package]]
 name = "nibabel"
