@@ -34,6 +34,15 @@ def parse_args() -> argparse.Namespace:
         help="stimulus index CSV (stimulus_id + text|path). Defaults to the repo's stimuli/.",
     )
     parser.add_argument("--cache-root", default=None, help="override cache_root")
+    parser.add_argument(
+        "--work-dir",
+        default=None,
+        help=(
+            "TRIBE's scratch cache (TTS audio, whisperx table, word embeddings). "
+            "Defaults to local ephemeral disk. Do NOT put this on Drive: it is "
+            "hundreds of MB per stimulus and a FUSE mount corrupts it on interrupt."
+        ),
+    )
     parser.add_argument("--limit", type=int, default=None, help="process at most N stimuli")
     parser.add_argument(
         "--check-determinism",
@@ -73,7 +82,9 @@ def main() -> int:
         if not stimuli:
             raise SystemExit("no stimuli to check")
         inference.set_determinism(config)
-        model = inference.load_model(config, cache_folder=config.cache_root / "tribe_workdir")
+        work = Path(args.work_dir) if args.work_dir else inference.default_work_dir()
+        work.mkdir(parents=True, exist_ok=True)
+        model = inference.load_model(config, cache_folder=work)
         first = stimuli[0]
         print(f"determinism check on {first['stimulus_id']} (two full runs)")
         inference.assert_bitwise_reproducible(
@@ -82,7 +93,9 @@ def main() -> int:
         print("bitwise equal across runs")
         return 0
 
-    outcomes = inference.run_inference(config, stimuli, limit=args.limit)
+    outcomes = inference.run_inference(
+        config, stimuli, limit=args.limit, work_dir=args.work_dir
+    )
 
     predicted = sum(1 for o in outcomes if o.action == "predicted")
     skipped = len(outcomes) - predicted

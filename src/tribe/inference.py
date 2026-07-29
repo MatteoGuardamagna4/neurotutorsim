@@ -226,6 +226,36 @@ def assert_bitwise_reproducible(model, stimulus_id: str, text: str, config: Trib
         )
 
 
+def default_work_dir() -> Path:
+    """TRIBE's own scratch cache: local ephemeral disk, never Drive.
+
+    This holds what TRIBE recomputes per stimulus -- the TTS audio, the whisperx
+    word table, and (by far the largest part) one Llama hidden-state array per
+    word event. At `(20, 3072)` floats per event and ~1600 events per stimulus
+    that is a few hundred MB *per stimulus*, not the "few hundred KB" an earlier
+    comment here claimed. On a 15 GB Drive already budgeted for ~4.7 GB of
+    predictions, parking it there is not affordable.
+
+    Correctness settles it even where space would not. Drive is a FUSE mount
+    with no atomic writes, so a session killed mid-write leaves a truncated
+    file. exca records the entry's shape in metadata and the payload separately;
+    the reclaim path then hands back a zero-length buffer for a live-looking
+    key:
+
+        ValueError: cannot reshape array of size 0 into shape (20,3072)
+
+    That surfaces *after* the embeddings have been recomputed -- half an hour of
+    GPU time to reach a corrupt read. Local disk gets atomic renames and does
+    not have this failure mode.
+
+    The cost accepted in exchange: a session that dies loses this scratch, so
+    the interrupted stimulus pays TTS and embeddings again. Completed stimuli
+    are unaffected -- they are in the content-addressed cache on Drive, which is
+    what `resolve()` consults, and they are skipped on the next run.
+    """
+    return Path(tempfile.gettempdir()) / "neurotutorsim_tribe_workdir"
+
+
 def run_inference(
     config: TribeConfig,
     stimuli: Sequence[Dict[str, str]],
@@ -233,6 +263,7 @@ def run_inference(
     model=None,
     atlas: Optional[Atlas] = None,
     limit: Optional[int] = None,
+    work_dir: Optional[str | Path] = None,
 ) -> List[InferenceOutcome]:
     """Idempotent inference loop over `stimuli`.
 
@@ -256,6 +287,10 @@ def run_inference(
     retention = set(config.read_vertex_retention_set())
     if atlas is None:
         atlas = load_atlas(config.atlas_file)
+
+    work = Path(work_dir) if work_dir is not None else default_work_dir()
+    work.mkdir(parents=True, exist_ok=True)
+    print(f"[tribe] scratch cache: {work}")
 
     outcomes: List[InferenceOutcome] = []
     discrepancies: List[events_mod.TimingDiscrepancy] = []
@@ -284,12 +319,7 @@ def run_inference(
 
         if lazy_model is None:
             set_determinism(config)
-            # Not the HuggingFace cache -- HF_HOME points at the ephemeral disk,
-            # because 13 GB of re-downloadable weights would crowd the corpus off
-            # a 15 GB Drive. This is TRIBE's own working cache (TTS audio and the
-            # whisperx word table), which is worth keeping: it costs ~2 minutes
-            # per stimulus to rebuild and a few hundred KB to store.
-            lazy_model = load_model(config, cache_folder=config.cache_root / "tribe_workdir")
+            lazy_model = load_model(config, cache_folder=work)
 
         array, extra = predict_stimulus(lazy_model, stimulus_id, text, config)
         metadata = dict(extra["metadata"])
