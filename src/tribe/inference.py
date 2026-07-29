@@ -24,6 +24,7 @@ This module imports torch. Do not import it from Track B code.
 
 from __future__ import annotations
 
+import os
 import tempfile
 import time
 from dataclasses import dataclass
@@ -68,6 +69,48 @@ class InferenceOutcome:
     runtime_s: float
 
 
+#: Values of `CUBLAS_WORKSPACE_CONFIG` that make cuBLAS GEMMs reproducible.
+#: `:4096:8` is NVIDIA's recommended setting; `:16:8` trades a little speed for
+#: a smaller workspace. Anything else -- including unset -- makes torch refuse
+#: to run a cuBLAS op under `use_deterministic_algorithms(True)`.
+DETERMINISTIC_CUBLAS_CONFIGS = (":4096:8", ":16:8")
+
+
+def _require_deterministic_cublas() -> None:
+    """Put `CUBLAS_WORKSPACE_CONFIG` in the environment before cuBLAS starts.
+
+    On CUDA >= 10.2 cuBLAS picks a workspace per stream, which makes GEMM
+    results depend on stream scheduling. torch therefore refuses to run one
+    under `use_deterministic_algorithms(True)` unless this variable is set --
+    and TRIBE hits it inside Llama's rotary embedding, a plain matmul, so
+    "deterministic TRIBE inference" is unreachable without it.
+
+    cuBLAS reads the variable when it creates its handle, so setting it after
+    the first CUDA work has no effect. That case is raised rather than papered
+    over: the run would otherwise proceed as if determinism had been configured.
+    """
+    import torch
+
+    current = os.environ.get("CUBLAS_WORKSPACE_CONFIG")
+    if current in DETERMINISTIC_CUBLAS_CONFIGS:
+        return
+    if current:
+        raise InferenceError(
+            f"CUBLAS_WORKSPACE_CONFIG is set to {current!r}, which is not one of the "
+            f"reproducible settings {list(DETERMINISTIC_CUBLAS_CONFIGS)}. Refusing to "
+            f"overwrite a deliberate choice -- unset it, or set it to ':4096:8'."
+        )
+    if torch.cuda.is_initialized():
+        raise InferenceError(
+            "CUBLAS_WORKSPACE_CONFIG was not set and CUDA is already initialised, so "
+            "cuBLAS has its handle and setting it now would be silently ineffective. "
+            "§10.1 requires bitwise reproducibility, which cannot be established from "
+            "here. Restart the process with CUBLAS_WORKSPACE_CONFIG=:4096:8 in the "
+            "environment (`set_determinism` does this itself when called first)."
+        )
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+
+
 def set_determinism(config: TribeConfig) -> None:
     """Pin every seed and switch off nondeterministic kernels (§10.1).
 
@@ -75,10 +118,15 @@ def set_determinism(config: TribeConfig) -> None:
     bitwise-equal output. If a kernel here has no deterministic implementation,
     torch raises -- which is the correct outcome. Do not relax this to a
     tolerance; report it instead.
+
+    Call this *before* any CUDA work. It configures cuBLAS through the
+    environment, which is only read while the handle is being created.
     """
     import random
 
     import torch
+
+    _require_deterministic_cublas()
 
     random.seed(config.master_seed)
     np.random.seed(config.master_seed)

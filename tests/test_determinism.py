@@ -119,3 +119,39 @@ def test_every_key_component_actually_changes_the_key(kwargs):
         precision="fp32",
     )
     assert vertex_cache_key(**base) != vertex_cache_key(**{**base, **kwargs})
+
+
+# -- cuBLAS workspace configuration ------------------------------------------
+#
+# On CUDA >= 10.2 cuBLAS chooses a workspace per stream, so GEMM results depend
+# on stream scheduling. torch refuses to run one under
+# `use_deterministic_algorithms(True)` unless CUBLAS_WORKSPACE_CONFIG is set --
+# and TRIBE hits exactly that path inside Llama's rotary embedding.
+
+
+def _require_cublas():
+    pytest.importorskip("torch", reason="Track A only; a laptop sync installs no torch")
+    from src.tribe.inference import _require_deterministic_cublas
+
+    return _require_deterministic_cublas
+
+
+def test_cublas_workspace_is_configured_when_unset(monkeypatch):
+    monkeypatch.delenv("CUBLAS_WORKSPACE_CONFIG", raising=False)
+    _require_cublas()()
+    assert os.environ["CUBLAS_WORKSPACE_CONFIG"] == ":4096:8"
+
+
+@pytest.mark.parametrize("value", [":4096:8", ":16:8"])
+def test_an_already_reproducible_setting_is_left_alone(monkeypatch, value):
+    monkeypatch.setenv("CUBLAS_WORKSPACE_CONFIG", value)
+    _require_cublas()()
+    assert os.environ["CUBLAS_WORKSPACE_CONFIG"] == value
+
+
+def test_a_non_reproducible_setting_raises_rather_than_being_overwritten(monkeypatch):
+    """Someone set this deliberately. Silently replacing it would substitute our
+    judgement for theirs on a variable that changes numerical results."""
+    monkeypatch.setenv("CUBLAS_WORKSPACE_CONFIG", ":2:2")
+    with pytest.raises(RuntimeError, match="not one of the reproducible settings"):
+        _require_cublas()()
