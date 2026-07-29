@@ -9,7 +9,17 @@
 *.safetensors
 *.h5
 
-data/raw/
+data/raw/*
+!data/raw/atlas/
+data/raw/atlas/*
+# The Schaefer-400 fsaverage5 lookup is 21 KB and is the one input every Colab
+# session needs before aggregate.py can run -- but `data/raw/` is gitignored, so
+# a fresh clone never had it. Committing this single file removes a per-session
+# copy step. It does not weaken §6.4 provenance: the atlas sha256 still travels
+# inside every parcel table (docs/parcellation.md), and the `.annot` sources it
+# was built from stay out of git (notebook 03 fetches them).
+!data/raw/atlas/schaefer400_fsaverage5.npz
+
 data/interim/*
 !data/interim/units/
 data/interim/units/*
