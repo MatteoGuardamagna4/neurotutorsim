@@ -73,7 +73,7 @@ def main() -> int:
         if not stimuli:
             raise SystemExit("no stimuli to check")
         inference.set_determinism(config)
-        model = inference.load_model(config, cache_folder=config.cache_root / "hf")
+        model = inference.load_model(config, cache_folder=config.cache_root / "tribe_workdir")
         first = stimuli[0]
         print(f"determinism check on {first['stimulus_id']} (two full runs)")
         inference.assert_bitwise_reproducible(

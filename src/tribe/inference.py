@@ -229,7 +229,12 @@ def run_inference(
 
         if lazy_model is None:
             set_determinism(config)
-            lazy_model = load_model(config, cache_folder=config.cache_root / "hf")
+            # Not the HuggingFace cache -- HF_HOME points at the ephemeral disk,
+            # because 13 GB of re-downloadable weights would crowd the corpus off
+            # a 15 GB Drive. This is TRIBE's own working cache (TTS audio and the
+            # whisperx word table), which is worth keeping: it costs ~2 minutes
+            # per stimulus to rebuild and a few hundred KB to store.
+            lazy_model = load_model(config, cache_folder=config.cache_root / "tribe_workdir")
 
         array, extra = predict_stimulus(lazy_model, stimulus_id, text, config)
         metadata = dict(extra["metadata"])
