@@ -266,18 +266,22 @@ def apply_our_timings(
     ours = [w.lower() for w in events_df["word"].tolist()]
     theirs = [_normalize_token(t) for t in words[TRIBE_COL_TEXT].tolist()]
 
+    raw = [str(t) for t in words[TRIBE_COL_TEXT].tolist()]
+
     if len(ours) != len(theirs):
         raise ValueError(
             f"{stimulus_id}: TRIBE produced {len(theirs)} word events but our event "
             f"table has {len(ours)}. Word sequences must align 1:1 before timings can "
-            f"be replaced; refusing to truncate or pad."
+            f"be replaced; refusing to truncate or pad.\n"
+            f"{_alignment_diagnostic(ours, raw)}"
         )
     mismatches = [(i, a, b) for i, (a, b) in enumerate(zip(ours, theirs)) if a != b]
     if mismatches:
         head = mismatches[:5]
         raise ValueError(
             f"{stimulus_id}: {len(mismatches)} word(s) differ between our event table "
-            f"and TRIBE's transcription; first mismatches (index, ours, tribe): {head}"
+            f"and TRIBE's transcription; first mismatches (index, ours, tribe): {head}\n"
+            f"{_alignment_diagnostic(ours, raw)}"
         )
 
     their_starts = words[TRIBE_COL_START].astype(float).to_numpy()
@@ -307,6 +311,36 @@ def apply_our_timings(
         our_total_duration_s=total_duration_s(events_df),
     )
     return corrected, discrepancy
+
+
+def _alignment_diagnostic(ours: Sequence[str], theirs: Sequence[str]) -> str:
+    """What TRIBE's tokens actually *are*, printed with the alignment failure.
+
+    An alignment failure is expensive to diagnose remotely: it happens on a
+    Colab GPU session, after a checkpoint load, and the frame that caused it is
+    gone by the time the traceback arrives. So the exception carries enough of
+    the two sequences to tell the three plausible causes apart without a second
+    run:
+
+    * TRIBE emitting *characters* rather than words (its rows are typed 'Word'
+      either way) -- visible as single-character tokens and a token count near
+      the body's character count;
+    * TTS speaking symbols aloud ('EUR 120,000' -> 'one hundred twenty thousand
+      euros') -- visible as extra word-shaped tokens around numerals;
+    * a genuine transcription error -- visible as a local substitution.
+    """
+    lengths = [len(t) for t in theirs]
+    mean_len = (sum(lengths) / len(lengths)) if lengths else 0.0
+    single = sum(1 for n in lengths if n == 1)
+    return (
+        f"  ours   (first 12): {list(ours[:12])}\n"
+        f"  tribe  (first 24): {list(theirs[:24])}\n"
+        f"  tribe token lengths: mean {mean_len:.2f} chars, "
+        f"{single}/{len(theirs)} are single characters\n"
+        f"  tribe concatenated (first 120 chars): {''.join(theirs)[:120]!r}\n"
+        f"  If most tokens are single characters, TRIBE's rows are character-level "
+        f"and the 1:1 word assumption in this function does not hold."
+    )
 
 
 def _normalize_token(token: Any) -> str:
