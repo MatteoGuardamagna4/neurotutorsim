@@ -20,7 +20,7 @@ Append-only, one row per cache entry. Written by `src/tribe/cache.py`.
 
 | column | type | units | provenance |
 |---|---|---|---|
-| `vertex_key` | str (64 hex) | — | `sha256(text_hash, reading_rate_wpm, checkpoint_revision, precision)` |
+| `vertex_key` | str (64 hex) | — | `sha256(text_hash, checkpoint_revision, precision)` |
 | `parcel_key` | str (64 hex) | — | `sha256(vertex_key, atlas, parcel_weighting)` |
 | `stimulus_id` | str | — | stimulus front matter |
 | `level` | str | — | `vertex` or `parcel` |
@@ -198,19 +198,29 @@ exactly what the gate exists to catch.
 
 ## 10. Timing discrepancy report — `reports/timing_discrepancy.md`
 
-Written only when TRIBE's own event timings disagree with our 220 wpm onsets.
-Our onsets are already authoritative by the time this is written; neither
-source is adjusted to match the other.
+Records the gap between our reading-rate model and the audio TRIBE actually
+heard. Neither source is adjusted to match the other, and neither is written
+into the other: the §6.2 formula governs Track B, while TRIBE derives its
+timings from the TTS waveform it renders.
+
+The columns are counts and spans rather than per-word offsets because a per-word
+comparison is undefined here. TRIBE's whisperx re-transcription tokenises
+differently from ours (`break-even` vs `break` + `even`), and its frame is
+chunked — one `Audio` row per ~60 s segment with the word events repeated once
+per chunk — so `TRIBE word events` routinely exceeds `our words` several times
+over. That is expected, not an error.
 
 | column | units | provenance |
 |---|---|---|
 | `stimulus_id` | — | front matter |
 | `r (wpm)` | words/minute | config |
-| `n words` | words | our tokenizer |
-| `max abs offset` | seconds | max over words of \|TRIBE onset − our onset\| |
-| `mean abs offset` | seconds | mean of the same |
-| `TRIBE duration` | seconds | last TRIBE word onset + duration |
+| `our words` | words | our tokenizer |
 | `our duration` | seconds | `60 × words / r` |
+| `TRIBE word events` | rows | count of `Word` rows in TRIBE's frame |
+| `TRIBE audio rows` | rows | count of `Audio` rows — the number of ~60 s chunks |
+| `TRIBE span` | seconds | largest finite `start + duration` in the frame |
+| `max offset` | seconds | largest finite `offset`; non-zero ⇒ `start` is chunk-relative and the span is a lower bound |
+| `span / our duration` | ratio | `TRIBE span ÷ our duration` |
 
 ---
 

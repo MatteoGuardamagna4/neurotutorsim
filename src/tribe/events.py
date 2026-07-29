@@ -1,21 +1,33 @@
-"""Canonical word-level event table for TRIBE (§6.2).
+"""Canonical word-level event table (§6.2), and what it does *not* apply to.
 
-Timing is settled: the deterministic reading-rate formula is authoritative.
+The deterministic reading-rate formula is authoritative for how long a
+simulated learner spends on a stimulus:
 
     onset_j = 60 * cumulative_words_before_j / r        (§6.2 eq. 4)
 
 with r = 220 wpm in the main specification and r in {180, 260} available as
-robustness values. Onsets are *not* derived from TTS or from whisperx
-re-transcription. If TRIBE's own `get_events_dataframe()` disagrees, our onsets
-win and the disagreement is logged (see `timing_discrepancy`), never silently
-reconciled in either direction.
+robustness values. That is a model of silent reading, and it governs Track B.
+
+**It is not applied to TRIBE.** TRIBE renders the stimulus to speech and
+encodes the resulting waveform, so its timings are a property of audio we do
+not control. Two facts, both established against real vendor output, make an
+override impossible rather than merely undesirable:
+
+* its whisperx re-transcription tokenises differently from ours ('break-even'
+  vs 'break' + 'even'), so no 1:1 word mapping exists to carry onsets across;
+* its events frame is chunked -- one 'Audio' row per ~60 s segment, word events
+  repeated per chunk, `start` relative to a chunk `offset` -- so absolute
+  reading-rate onsets written into `start` describe audio that is not there.
+
+The gap between the two is measured and reported, never reconciled: see
+`measure_timing_discrepancy`. This reopens brief §6.2 for Track A only; the
+formula's standing in Track B is unchanged.
 
 Two layers, deliberately separated:
 
 * `build_events` produces OUR canonical table. It owns the science.
-* `to_tribe_events` / `apply_our_timings` adapt that table to whatever column
-  names TRIBE currently expects. They own the vendor API. A TRIBE change
-  touches only the adapter.
+* everything below the adapter banner reads TRIBE's schema. A vendor change
+  touches only that section.
 
 Onset computation itself is delegated to `src.generation.features.word_onsets`
 -- this module never reimplements the formula.
@@ -27,7 +39,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Sequence
 
 import pandas as pd
 
@@ -45,12 +57,15 @@ TRIBE_COL_DURATION = "duration"
 TRIBE_COL_TEXT = "text"
 TRIBE_COL_FILEPATH = "filepath"
 TRIBE_COL_CONTEXT = "context"
+#: Chunk start. Non-zero values mean `start` is relative to a ~60 s segment.
+TRIBE_COL_OFFSET = "offset"
 
-#: The vendor's own spelling of the word-event type. TRIBE v2 emits capitalised
-#: type names ('Audio', 'Sentence', 'Text', 'Word'); matching is done
-#: case-insensitively (see `_tribe_word_mask`) so a recapitalisation upstream is
-#: not a crash, but frames *we* construct use the vendor's spelling verbatim.
+#: The vendor's own spelling of the event types it emits. TRIBE v2 capitalises
+#: them ('Audio', 'Sentence', 'Text', 'Word'); matching is done
+#: case-insensitively (see `_rows_of_type`) because getting the case wrong reads
+#: as "this stimulus contains no words" rather than as a schema change.
 TRIBE_WORD_TYPE = "Word"
+TRIBE_AUDIO_TYPE = "Audio"
 
 
 def build_events(stimulus_text: str, reading_rate_wpm: float) -> pd.DataFrame:
@@ -153,200 +168,143 @@ def total_duration_s(events: pd.DataFrame) -> float:
 # ---------------------------------------------------------------------------
 # TRIBE adapter. Everything below knows about the vendor's schema; nothing
 # above does.
+#
+# NOTE: this section deliberately contains no way to write our onsets into a
+# TRIBE events frame. See `measure_timing_discrepancy` for why, and do not add
+# one back.
 # ---------------------------------------------------------------------------
-
-
-def to_tribe_events(
-    events_df: pd.DataFrame,
-    *,
-    filepath: str | Path,
-    context: Optional[str] = None,
-) -> pd.DataFrame:
-    """Adapt the canonical table to TRIBE v2's events dataframe schema.
-
-    TRIBE consumes rows of (type, start, duration, filepath, text, context).
-    `filepath` is the audio rendering of the stimulus that TRIBE's own
-    `get_events_dataframe` produced -- we reuse its audio, only its timings are
-    replaced.
-
-    Adapter only: no science here, and no shape change to `events_df`.
-    """
-    validate_events(events_df)
-    return pd.DataFrame(
-        {
-            TRIBE_COL_TYPE: TRIBE_WORD_TYPE,
-            TRIBE_COL_START: events_df["onset_s"].astype(float).to_numpy(),
-            TRIBE_COL_DURATION: events_df["duration_s"].astype(float).to_numpy(),
-            TRIBE_COL_FILEPATH: str(filepath),
-            TRIBE_COL_TEXT: events_df["word"].to_numpy(),
-            TRIBE_COL_CONTEXT: context,
-        }
-    )
 
 
 @dataclass(frozen=True)
 class TimingDiscrepancy:
-    """How far TRIBE's own word timings sit from our 220 wpm onsets."""
+    """How far our reading-rate model sits from the audio TRIBE actually heard.
+
+    Measured at the level the data supports -- counts and total duration -- not
+    per word. TRIBE's word events cannot be aligned 1:1 with ours; see
+    `measure_timing_discrepancy` for why.
+    """
 
     stimulus_id: str
     reading_rate_wpm: float
-    n_words: int
-    max_abs_offset_s: float
-    mean_abs_offset_s: float
-    tribe_total_duration_s: float
+    our_n_words: int
     our_total_duration_s: float
+    tribe_n_word_events: int
+    tribe_n_audio_rows: int
+    tribe_span_s: float
+    tribe_max_offset_s: float
+
+    @property
+    def duration_ratio(self) -> float:
+        """TRIBE's audio span over our implied reading duration."""
+        if self.our_total_duration_s <= 0:
+            raise ValueError(
+                f"{self.stimulus_id}: our_total_duration_s is {self.our_total_duration_s}; "
+                f"a duration ratio is undefined"
+            )
+        return self.tribe_span_s / self.our_total_duration_s
 
     def as_dict(self) -> Dict[str, Any]:
         return {
             "stimulus_id": self.stimulus_id,
             "reading_rate_wpm": self.reading_rate_wpm,
-            "n_words": self.n_words,
-            "max_abs_offset_s": self.max_abs_offset_s,
-            "mean_abs_offset_s": self.mean_abs_offset_s,
-            "tribe_total_duration_s": self.tribe_total_duration_s,
+            "our_n_words": self.our_n_words,
             "our_total_duration_s": self.our_total_duration_s,
+            "tribe_n_word_events": self.tribe_n_word_events,
+            "tribe_n_audio_rows": self.tribe_n_audio_rows,
+            "tribe_span_s": self.tribe_span_s,
+            "tribe_max_offset_s": self.tribe_max_offset_s,
+            "duration_ratio": self.duration_ratio,
         }
 
 
-def _tribe_word_mask(tribe_df: pd.DataFrame) -> "pd.Series[bool]":
-    """Boolean mask selecting the word rows of a TRIBE events frame.
+def _rows_of_type(tribe_df: pd.DataFrame, type_name: str) -> pd.DataFrame:
+    """Rows of one TRIBE event type, matched case-insensitively.
 
-    A mask rather than a sub-frame, because `apply_our_timings` has to write
-    corrected timings back into the *full* frame: TRIBE's other row types
-    ('Audio', 'Sentence', 'Text') are what its audio and context pathways read,
-    and `model.predict` is only ever handed the whole frame -- that is what gate
-    17 verifies against Meta's example.
-
-    Type matching is case-insensitive. The vendor emits 'Word'; a build that
-    emitted 'word' would otherwise look like a frame containing no words at all.
+    The vendor emits capitalised names ('Audio', 'Sentence', 'Text', 'Word').
+    Matching case-sensitively on 'word' once made a frame full of words look
+    like a frame containing none.
     """
-    required = {TRIBE_COL_START, TRIBE_COL_DURATION, TRIBE_COL_TEXT}
-    missing = sorted(required - set(tribe_df.columns))
+    if TRIBE_COL_TYPE not in tribe_df.columns:
+        return tribe_df.iloc[0:0]
+    types = tribe_df[TRIBE_COL_TYPE].astype(str).str.strip().str.casefold()
+    return tribe_df[(types == type_name.casefold()).to_numpy()]
+
+
+def _finite_max(frame: pd.DataFrame, *columns: str) -> float:
+    """Largest finite value of the row-wise sum of `columns`, or 0.0 if none.
+
+    Non-numeric and missing entries count as zero rather than poisoning the
+    maximum: TRIBE's frame is a union of row types, so columns that apply to one
+    type are NaN for the others by design.
+    """
+    present = [c for c in columns if c in frame.columns]
+    if not present or frame.empty:
+        return 0.0
+    total = None
+    for column in present:
+        values = pd.to_numeric(frame[column], errors="coerce").fillna(0.0)
+        total = values if total is None else total + values
+    finite = total[total.apply(lambda v: v == v and abs(v) != float("inf"))]
+    return float(finite.max()) if not finite.empty else 0.0
+
+
+def measure_timing_discrepancy(
+    tribe_df: pd.DataFrame, events_df: pd.DataFrame, *, stimulus_id: str
+) -> TimingDiscrepancy:
+    """Record how far our reading-rate model sits from TRIBE's audio (§6.2).
+
+    **This measures. It does not reconcile, and it does not overwrite.** The
+    §6.2 formula stays authoritative for how long a simulated learner spends on
+    a stimulus (Track B). It is not imposed on TRIBE, for two reasons
+    established against real vendor output:
+
+    * *The tokenisations cannot be aligned.* TRIBE renders the text to speech
+      and re-transcribes it with whisperx, so it yields 'break-even' where we
+      yield 'break' + 'even', and '120,000' + 'euros' where we yield 'EUR' +
+      '120' + '000'. Two tokenisers over two media do not agree, by
+      construction -- a 1:1 word mapping is unachievable in principle, not
+      merely unwritten.
+    * *TRIBE consumes the waveform.* The audio runs at TTS rate whatever an
+      events table claims. The frame is chunked: one 'Audio' row per ~60 s
+      segment, the word events repeated once per chunk, and an `offset` column
+      carrying the chunk start. Writing absolute reading-rate onsets into
+      `start` made the event timings describe audio that was not there.
+
+    The quantities here are counts and spans, which are defined without any
+    alignment. `tribe_span_s` is reported next to `tribe_max_offset_s` because
+    the vendor's absolute-vs-chunk-relative convention is undocumented: when
+    `tribe_max_offset_s` is non-zero, treat the span as a lower bound rather
+    than trusting one interpretation silently.
+    """
+    validate_events(events_df)
+    missing = sorted({TRIBE_COL_START, TRIBE_COL_DURATION} - set(tribe_df.columns))
     if missing:
         raise ValueError(
             f"TRIBE events dataframe is missing column(s) {missing}. Observed columns: "
             f"{sorted(tribe_df.columns)}. The vendor schema has changed -- update the "
             f"TRIBE_COL_* constants in src/tribe/events.py rather than working around it."
         )
-    if TRIBE_COL_TYPE not in tribe_df.columns:
-        return pd.Series(True, index=tribe_df.index)
 
-    types = tribe_df[TRIBE_COL_TYPE].astype(str).str.strip().str.casefold()
-    mask = types == TRIBE_WORD_TYPE.casefold()
-    if not mask.any():
+    words = _rows_of_type(tribe_df, TRIBE_WORD_TYPE)
+    if words.empty:
         raise ValueError(
-            f"TRIBE events dataframe has no rows of type {TRIBE_WORD_TYPE!r} "
-            f"(compared case-insensitively); observed types: "
+            f"{stimulus_id}: TRIBE events dataframe has no rows of type "
+            f"{TRIBE_WORD_TYPE!r} (compared case-insensitively); observed types: "
             f"{sorted(tribe_df[TRIBE_COL_TYPE].astype(str).unique())}"
-        )
-    return mask
-
-
-def apply_our_timings(
-    tribe_df: pd.DataFrame, events_df: pd.DataFrame, *, stimulus_id: str
-) -> tuple[pd.DataFrame, TimingDiscrepancy]:
-    """Overwrite TRIBE's word timings with our 220 wpm onsets (§6.2, settled).
-
-    Returns the corrected TRIBE frame plus the measured discrepancy. Raises if
-    the two word sequences do not align: a partial overwrite would silently
-    attach our onsets to the wrong words, which is worse than a hard failure.
-
-    The frame returned is the *whole* input frame with the word rows retimed --
-    same rows, same order, same columns. Non-word rows ('Audio', 'Sentence',
-    'Text') are passed through untouched: they index the real TTS waveform that
-    TRIBE just rendered, so retiming them to our reading rate would desynchronise
-    the frame from the audio it describes. The resulting gap between our word
-    onsets and TRIBE's audio is the discrepancy this function measures; per §6.2
-    it is recorded, not reconciled.
-    """
-    validate_events(events_df)
-    mask = _tribe_word_mask(tribe_df)
-    words = tribe_df[mask.to_numpy()]
-
-    ours = [w.lower() for w in events_df["word"].tolist()]
-    theirs = [_normalize_token(t) for t in words[TRIBE_COL_TEXT].tolist()]
-
-    raw = [str(t) for t in words[TRIBE_COL_TEXT].tolist()]
-
-    if len(ours) != len(theirs):
-        raise ValueError(
-            f"{stimulus_id}: TRIBE produced {len(theirs)} word events but our event "
-            f"table has {len(ours)}. Word sequences must align 1:1 before timings can "
-            f"be replaced; refusing to truncate or pad.\n"
-            f"{_alignment_diagnostic(ours, raw)}"
-        )
-    mismatches = [(i, a, b) for i, (a, b) in enumerate(zip(ours, theirs)) if a != b]
-    if mismatches:
-        head = mismatches[:5]
-        raise ValueError(
-            f"{stimulus_id}: {len(mismatches)} word(s) differ between our event table "
-            f"and TRIBE's transcription; first mismatches (index, ours, tribe): {head}\n"
-            f"{_alignment_diagnostic(ours, raw)}"
+            if TRIBE_COL_TYPE in tribe_df.columns
+            else f"{stimulus_id}: TRIBE events dataframe has no {TRIBE_COL_TYPE!r} column"
         )
 
-    their_starts = words[TRIBE_COL_START].astype(float).to_numpy()
-    our_starts = events_df["onset_s"].astype(float).to_numpy()
-    offsets = abs(their_starts - our_starts)
-
-    # Positional, not label-based: TRIBE builds this frame by concatenating one
-    # sub-frame per event type, so its index is not guaranteed to be unique and
-    # `.loc` on a duplicated label would write to the wrong rows.
-    corrected = tribe_df.reset_index(drop=True)
-    positions = mask.to_numpy().nonzero()[0]
-    corrected.iloc[positions, corrected.columns.get_loc(TRIBE_COL_START)] = our_starts
-    corrected.iloc[positions, corrected.columns.get_loc(TRIBE_COL_DURATION)] = (
-        events_df["duration_s"].astype(float).to_numpy()
-    )
-
-    their_last = words.iloc[-1]
-    discrepancy = TimingDiscrepancy(
+    return TimingDiscrepancy(
         stimulus_id=stimulus_id,
         reading_rate_wpm=float(60.0 / float(events_df["duration_s"].iloc[0])),
-        n_words=len(ours),
-        max_abs_offset_s=float(offsets.max()),
-        mean_abs_offset_s=float(offsets.mean()),
-        tribe_total_duration_s=float(
-            their_last[TRIBE_COL_START] + their_last[TRIBE_COL_DURATION]
-        ),
+        our_n_words=int(len(events_df)),
         our_total_duration_s=total_duration_s(events_df),
+        tribe_n_word_events=int(len(words)),
+        tribe_n_audio_rows=int(len(_rows_of_type(tribe_df, TRIBE_AUDIO_TYPE))),
+        tribe_span_s=_finite_max(tribe_df, TRIBE_COL_START, TRIBE_COL_DURATION),
+        tribe_max_offset_s=_finite_max(tribe_df, TRIBE_COL_OFFSET),
     )
-    return corrected, discrepancy
-
-
-def _alignment_diagnostic(ours: Sequence[str], theirs: Sequence[str]) -> str:
-    """What TRIBE's tokens actually *are*, printed with the alignment failure.
-
-    An alignment failure is expensive to diagnose remotely: it happens on a
-    Colab GPU session, after a checkpoint load, and the frame that caused it is
-    gone by the time the traceback arrives. So the exception carries enough of
-    the two sequences to tell the three plausible causes apart without a second
-    run:
-
-    * TRIBE emitting *characters* rather than words (its rows are typed 'Word'
-      either way) -- visible as single-character tokens and a token count near
-      the body's character count;
-    * TTS speaking symbols aloud ('EUR 120,000' -> 'one hundred twenty thousand
-      euros') -- visible as extra word-shaped tokens around numerals;
-    * a genuine transcription error -- visible as a local substitution.
-    """
-    lengths = [len(t) for t in theirs]
-    mean_len = (sum(lengths) / len(lengths)) if lengths else 0.0
-    single = sum(1 for n in lengths if n == 1)
-    return (
-        f"  ours   (first 12): {list(ours[:12])}\n"
-        f"  tribe  (first 24): {list(theirs[:24])}\n"
-        f"  tribe token lengths: mean {mean_len:.2f} chars, "
-        f"{single}/{len(theirs)} are single characters\n"
-        f"  tribe concatenated (first 120 chars): {''.join(theirs)[:120]!r}\n"
-        f"  If most tokens are single characters, TRIBE's rows are character-level "
-        f"and the 1:1 word assumption in this function does not hold."
-    )
-
-
-def _normalize_token(token: Any) -> str:
-    """Reduce a TRIBE transcript token to the same alphabet our tokenizer uses."""
-    matches = _WORD_RE.findall(str(token))
-    return "".join(matches).lower()
 
 
 def write_timing_discrepancy_report(
@@ -354,29 +312,37 @@ def write_timing_discrepancy_report(
 ) -> Path:
     """Write `reports/timing_discrepancy.md` (§3 of the Phase II task spec).
 
-    Written for review, not acted upon: our onsets are already authoritative by
-    the time this is called.
+    Written for review, not acted upon. Under the settled §6.2 policy neither
+    source is adjusted to match the other; this file is where the gap is stated
+    plainly instead.
     """
     out = Path(out_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     lines = [
-        "# Timing discrepancy: 220 wpm onsets vs TRIBE's own event timings",
+        "# Timing: our reading-rate model vs the audio TRIBE heard",
         "",
-        "The deterministic reading-rate formula (§6.2 eq. 4) is authoritative for word",
-        "onsets. TRIBE's `get_events_dataframe()` derives its own timings by running TTS",
-        "and re-transcribing with whisperx. Where the two disagree, our onsets are used",
-        "and the disagreement is recorded here. Neither source was adjusted to match the",
-        "other.",
+        "The deterministic reading-rate formula (§6.2 eq. 4) is authoritative for how long",
+        "a simulated learner spends on a stimulus. It is **not** applied to TRIBE, which",
+        "renders the text to speech and encodes the resulting waveform: the audio runs at",
+        "TTS rate whatever an events table says, and TRIBE's own word events cannot be",
+        "aligned 1:1 with ours -- different tokenisers over different media, and the frame",
+        "is chunked with the word events repeated once per chunk. Neither source is",
+        "adjusted to match the other; the gap is recorded here.",
         "",
-        "| stimulus_id | r (wpm) | n words | max abs offset (s) | mean abs offset (s) "
-        "| TRIBE duration (s) | our duration (s) |",
-        "|---|---|---|---|---|---|---|",
+        "`TRIBE span` is the largest finite `start + duration` in the frame. Where",
+        "`max offset` is non-zero the vendor is reporting chunk-relative times and the",
+        "span is a lower bound on the true audio duration.",
+        "",
+        "| stimulus_id | r (wpm) | our words | our duration (s) | TRIBE word events "
+        "| TRIBE audio rows | TRIBE span (s) | max offset (s) | span / our duration |",
+        "|---|---|---|---|---|---|---|---|---|",
     ]
     for d in discrepancies:
         lines.append(
-            f"| {d.stimulus_id} | {d.reading_rate_wpm:.0f} | {d.n_words} | "
-            f"{d.max_abs_offset_s:.3f} | {d.mean_abs_offset_s:.3f} | "
-            f"{d.tribe_total_duration_s:.2f} | {d.our_total_duration_s:.2f} |"
+            f"| {d.stimulus_id} | {d.reading_rate_wpm:.0f} | {d.our_n_words} | "
+            f"{d.our_total_duration_s:.2f} | {d.tribe_n_word_events} | "
+            f"{d.tribe_n_audio_rows} | {d.tribe_span_s:.2f} | "
+            f"{d.tribe_max_offset_s:.2f} | {d.duration_ratio:.2f} |"
         )
     lines.append("")
     out.write_text("\n".join(lines), encoding="utf-8")

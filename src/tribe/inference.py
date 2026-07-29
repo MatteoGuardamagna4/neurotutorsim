@@ -13,9 +13,11 @@ Three properties this module is built around:
   flushed per stimulus, inside the loop. Colab sessions die at 12h, on
   disconnect, or on idle, and anything held in memory dies with them.
 
-Timing: our 220 wpm onsets (§6.2) overwrite TRIBE's TTS/whisperx-derived
-timings for every project stimulus, and the disagreement is recorded to
-`reports/timing_discrepancy.md`.
+Timing: TRIBE is given its own events frame unmodified. Our 220 wpm onsets
+(§6.2) model silent reading and govern Track B; they cannot be imposed on a
+model that encodes a TTS waveform. The gap between the two is measured and
+written to `reports/timing_discrepancy.md` -- see `src/tribe/events.py` for the
+evidence behind that decision.
 
 This module imports torch. Do not import it from Track B code.
 """
@@ -99,6 +101,9 @@ def predict_stimulus(
     """
     import torch
 
+    # Built for the discrepancy record and to validate the text, not to be fed
+    # to TRIBE. `reading_rate_wpm` therefore does not influence the prediction
+    # and is not part of the cache key -- see `cache.vertex_cache_key`.
     canonical = events_mod.build_events(text, config.reading_rate_wpm)
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -106,16 +111,18 @@ def predict_stimulus(
         text_path.write_text(text, encoding="utf-8")
 
         started = time.perf_counter()
-        # TRIBE renders the text to speech and re-transcribes it to build this
-        # frame. We keep its audio and its row structure; we replace its
-        # timings with ours (§6.2, settled).
+        # TRIBE's own events frame, passed to `predict` unmodified -- the exact
+        # path gate 17 reproduces Meta's example through. Our reading-rate
+        # onsets are NOT written into it: they model silent reading, while this
+        # frame indexes a TTS waveform at TTS rate. See `events.py` for the two
+        # findings that make an override impossible rather than merely unwise.
         tribe_events = model.get_events_dataframe(text_path=text_path)
-        corrected, discrepancy = events_mod.apply_our_timings(
+        discrepancy = events_mod.measure_timing_discrepancy(
             tribe_events, canonical, stimulus_id=stimulus_id
         )
 
         with torch.inference_mode():
-            predictions, _segments = model.predict(events=corrected)
+            predictions, _segments = model.predict(events=tribe_events)
         runtime_s = time.perf_counter() - started
 
     array = np.asarray(predictions)

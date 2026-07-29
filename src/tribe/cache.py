@@ -18,7 +18,7 @@ data from parcel means.
 
 Keys are nested and content-addressed:
 
-    vertex_key = sha256(text_hash, reading_rate_wpm, checkpoint_revision, precision)
+    vertex_key = sha256(text_hash, checkpoint_revision, precision)
     parcel_key = sha256(vertex_key, atlas, parcel_weighting)
 
 Hashing uses `hashlib` over canonical JSON -- never Python's `hash()`, which is
@@ -94,17 +94,24 @@ def text_hash(text: str) -> str:
 
 
 def vertex_cache_key(
-    *, text_hash: str, reading_rate_wpm: float, checkpoint_revision: str, precision: str
-) -> str:
+    *, text_hash: str, checkpoint_revision: str, precision: str) -> str:
     """Identity of a raw TRIBE prediction (§4.5).
 
     Anything that changes the numbers changes the key: the stimulus text, the
-    reading rate r, the pinned checkpoint revision, the numeric precision.
+    pinned checkpoint revision, the numeric precision.
+
+    `reading_rate_wpm` is deliberately **not** here. It was, while §6.2's onsets
+    were being written into TRIBE's events frame. They no longer are -- TRIBE
+    gets its own frame and derives timings from the TTS waveform it renders (see
+    `src/tribe/events.py`), so r cannot change a single predicted value. Keeping
+    it in the key would invalidate correct cache entries on a robustness sweep
+    over r and buy nothing: every recomputation would return the same array at
+    the cost of another GPU run against a gated model. r stays in the manifest,
+    where it records the configuration a run was made under.
     """
     return _sha256(
         {
             "text_hash": text_hash,
-            "reading_rate_wpm": float(reading_rate_wpm),
             "checkpoint_revision": checkpoint_revision,
             "precision": precision,
         }
@@ -123,7 +130,6 @@ def keys_for(text: str, config: TribeConfig) -> tuple[str, str]:
     th = text_hash(text)
     vk = vertex_cache_key(
         text_hash=th,
-        reading_rate_wpm=config.reading_rate_wpm,
         checkpoint_revision=config.checkpoint_revision,
         precision=config.precision,
     )

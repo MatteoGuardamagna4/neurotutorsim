@@ -42,7 +42,7 @@ SNIPPET = """
     from src.tribe.cache import text_hash, vertex_cache_key, parcel_cache_key
     th = text_hash("Break-even analysis answers a simple question.")
     vk = vertex_cache_key(
-        text_hash=th, reading_rate_wpm=220.0, checkpoint_revision="a" * 40, precision="fp32"
+        text_hash=th, checkpoint_revision="a" * 40, precision="fp32"
     )
     pk = parcel_cache_key(vertex_key=vk, atlas="schaefer400", parcel_weighting="area")
     print(th, vk, pk)
@@ -60,7 +60,7 @@ def test_keys_match_the_value_computed_in_this_process():
     external = _run_in_fresh_process(SNIPPET, hashseed="99").split()
     th = text_hash(TEXT)
     vk = vertex_cache_key(
-        text_hash=th, reading_rate_wpm=220.0, checkpoint_revision="a" * 40, precision="fp32"
+        text_hash=th, checkpoint_revision="a" * 40, precision="fp32"
     )
     pk = parcel_cache_key(vertex_key=vk, atlas="schaefer400", parcel_weighting="area")
     assert external == [th, vk, pk]
@@ -69,7 +69,7 @@ def test_keys_match_the_value_computed_in_this_process():
 def test_keys_are_sha256_hex_digests():
     th = text_hash(TEXT)
     vk = vertex_cache_key(
-        text_hash=th, reading_rate_wpm=220.0, checkpoint_revision="a" * 40, precision="fp32"
+        text_hash=th, checkpoint_revision="a" * 40, precision="fp32"
     )
     for key in (th, vk):
         assert len(key) == 64
@@ -92,23 +92,22 @@ def test_cache_module_does_not_use_builtin_hash():
     assert offending == [], f"cache.py must not call the builtin hash(): {offending}"
 
 
-def test_float_reading_rate_is_canonicalised():
-    """220 and 220.0 must be the same key; an int in a config would otherwise
-    silently invalidate a whole corpus."""
-    th = text_hash(TEXT)
-    as_int = vertex_cache_key(
-        text_hash=th, reading_rate_wpm=220, checkpoint_revision="a" * 40, precision="fp32"
-    )
-    as_float = vertex_cache_key(
-        text_hash=th, reading_rate_wpm=220.0, checkpoint_revision="a" * 40, precision="fp32"
-    )
-    assert as_int == as_float
+def test_reading_rate_is_not_part_of_the_vertex_key():
+    """r does not reach TRIBE, so it must not gate the cache.
+
+    TRIBE renders its own TTS audio and derives every timing from it; the §6.2
+    rate governs Track B. Were r still in the key, a robustness sweep over
+    {180, 220, 260} would recompute three identical arrays at the cost of three
+    GPU runs against a gated model."""
+    import inspect
+
+    assert "reading_rate_wpm" not in inspect.signature(vertex_cache_key).parameters
 
 
 @pytest.mark.parametrize(
     "kwargs",
     [
-        {"reading_rate_wpm": 180.0},
+        {"text_hash": "c" * 64},
         {"checkpoint_revision": "b" * 40},
         {"precision": "fp16"},
     ],
@@ -116,7 +115,6 @@ def test_float_reading_rate_is_canonicalised():
 def test_every_key_component_actually_changes_the_key(kwargs):
     base = dict(
         text_hash=text_hash(TEXT),
-        reading_rate_wpm=220.0,
         checkpoint_revision="a" * 40,
         precision="fp32",
     )

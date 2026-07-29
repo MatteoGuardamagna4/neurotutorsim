@@ -134,10 +134,15 @@ def test_write_vertex_rejects_a_static_summary(tribe_config):
 # -- key derivation ----------------------------------------------------------
 
 
-def test_vertex_key_changes_with_reading_rate(tribe_config):
+def test_vertex_key_is_unchanged_by_the_reading_rate(tribe_config):
+    """r governs Track B, not TRIBE.
+
+    TRIBE renders its own TTS audio and derives timings from it, so r cannot
+    change a predicted value. A robustness sweep over {180, 220, 260} must
+    therefore hit the cache rather than pay for three identical GPU runs."""
     before, _ = keys_for(TEXT, tribe_config)
     after, _ = keys_for(TEXT, replace(tribe_config, reading_rate_wpm=180.0))
-    assert before != after
+    assert before == after
 
 
 def test_vertex_key_changes_with_revision(tribe_config):

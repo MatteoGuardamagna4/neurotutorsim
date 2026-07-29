@@ -6,11 +6,11 @@ import pandas as pd
 import pytest
 
 from src.tribe.events import (
-    apply_our_timings,
     build_events,
-    to_tribe_events,
+    measure_timing_discrepancy,
     total_duration_s,
     validate_events,
+    write_timing_discrepancy_report,
 )
 
 TEXT = "One two three. Four five! Six seven eight nine?"
@@ -76,87 +76,67 @@ def test_validate_events_rejects_negative_duration():
         validate_events(events)
 
 
-def test_to_tribe_events_is_a_pure_adapter():
-    events = build_events(TEXT, 220.0)
-    adapted = to_tribe_events(events, filepath="/tmp/a.wav", context=None)
-    assert len(adapted) == len(events)
-    assert set(adapted.columns) == {"type", "start", "duration", "filepath", "text", "context"}
-    assert adapted["start"].tolist() == pytest.approx(events["onset_s"].tolist())
-    assert adapted["text"].tolist() == events["word"].tolist()
+# -- the TRIBE adapter -------------------------------------------------------
+#
+# The frames below are shaped like real vendor output, which is the whole point:
+# capitalised type names, four ~60 s Audio chunks, the word events repeated once
+# per chunk, and a whisperx tokenisation that does not match ours.
 
 
-def _fake_tribe_frame(words, starts, durations):
-    return pd.DataFrame(
-        {
-            "type": "word",
-            "start": starts,
-            "duration": durations,
-            "filepath": "/tmp/a.wav",
-            "text": words,
-            "context": None,
-        }
-    )
-
-
-def test_our_timings_win_and_the_discrepancy_is_measured():
-    events = build_events(TEXT, 220.0)
-    drifted = [float(o) + 0.5 for o in events["onset_s"]]
-    tribe_frame = _fake_tribe_frame(events["word"].tolist(), drifted, [0.4] * 9)
-
-    corrected, discrepancy = apply_our_timings(tribe_frame, events, stimulus_id="s1")
-
-    assert corrected["start"].tolist() == pytest.approx(events["onset_s"].tolist())
-    assert corrected["duration"].tolist() == pytest.approx(events["duration_s"].tolist())
-    assert discrepancy.max_abs_offset_s == pytest.approx(0.5)
-    assert discrepancy.mean_abs_offset_s == pytest.approx(0.5)
-    assert discrepancy.n_words == 9
-
-
-def _mixed_type_tribe_frame(words, starts, durations):
-    """A frame shaped like the real vendor output: capitalised type names, and
-    'Audio'/'Text'/'Sentence' rows around the word rows."""
-    rows = [
-        {"type": "Audio", "start": 0.0, "duration": 12.0, "text": None},
-        {"type": "Text", "start": 0.0, "duration": 12.0, "text": TEXT},
-        {"type": "Sentence", "start": 0.0, "duration": 4.0, "text": "One two three."},
-    ]
-    rows += [
-        {"type": "Word", "start": s, "duration": d, "text": w}
-        for w, s, d in zip(words, starts, durations)
-    ]
+def _vendor_frame(*, n_chunks=4, chunk_s=60.0, words=None):
+    """A frame shaped like `TribeModel.get_events_dataframe()` really returns."""
+    words = words or ["TUTOR.", "Let's", "work", "through", "a", "break-even"]
+    rows = [{"type": "Text", "start": 0.0, "duration": 12.0, "text": TEXT, "offset": None}]
+    for chunk in range(n_chunks):
+        offset = chunk * chunk_s
+        rows.append(
+            {"type": "Audio", "start": 0.0, "duration": chunk_s, "text": None, "offset": offset}
+        )
+        rows += [
+            {
+                "type": "Word",
+                "start": float(i) * 0.4,
+                "duration": 0.4,
+                "text": w,
+                "offset": offset,
+            }
+            for i, w in enumerate(words)
+        ]
     frame = pd.DataFrame(rows)
-    frame["filepath"] = "/tmp/a.mp3"
-    frame["context"] = None
-    # TRIBE concatenates one sub-frame per event type, so the index repeats.
-    frame.index = [0, 0, 0] + list(range(len(words)))
+    # TRIBE concatenates one sub-frame per event type; the index repeats.
+    frame.index = [0] * len(frame)
     return frame
 
 
-def test_capitalised_vendor_type_names_are_recognised():
+def test_discrepancy_is_measured_without_aligning_words():
+    """The vendor tokenisation disagrees with ours and the frame repeats itself
+    four times over. Neither prevents a measurement."""
     events = build_events(TEXT, 220.0)
-    frame = _mixed_type_tribe_frame(events["word"].tolist(), list(range(9)), [0.4] * 9)
+    frame = _vendor_frame()
 
-    corrected, discrepancy = apply_our_timings(frame, events, stimulus_id="s1")
+    d = measure_timing_discrepancy(frame, events, stimulus_id="s1")
 
-    assert discrepancy.n_words == 9
-    word_rows = corrected[corrected["type"] == "Word"]
-    assert word_rows["start"].tolist() == pytest.approx(events["onset_s"].tolist())
-    assert word_rows["duration"].tolist() == pytest.approx(events["duration_s"].tolist())
+    assert d.our_n_words == 9
+    assert d.tribe_n_word_events == 24  # 6 words x 4 chunks -- not 9, and that is fine
+    assert d.tribe_n_audio_rows == 4
+    assert d.tribe_max_offset_s == pytest.approx(180.0)
+    assert d.our_total_duration_s == pytest.approx(60.0 * 9 / 220.0)
+    assert d.reading_rate_wpm == pytest.approx(220.0)
 
 
-def test_non_word_rows_survive_the_retiming_untouched():
+def test_span_is_the_largest_finite_start_plus_duration():
     events = build_events(TEXT, 220.0)
-    frame = _mixed_type_tribe_frame(events["word"].tolist(), list(range(9)), [0.4] * 9)
+    frame = _vendor_frame(n_chunks=1)
+    # 6 words at 0.4 s steps -> last starts at 2.0, ends at 2.4; Audio row is 60 s.
+    assert measure_timing_discrepancy(
+        frame, events, stimulus_id="s1"
+    ).tribe_span_s == pytest.approx(60.0)
 
-    corrected, _ = apply_our_timings(frame, events, stimulus_id="s1")
 
-    # predict() is handed this frame; dropping the Audio/Text/Sentence rows
-    # would silently strip TRIBE's audio and context pathways.
-    assert len(corrected) == len(frame)
-    assert corrected["type"].tolist() == frame["type"].tolist()
-    other = corrected[corrected["type"] != "Word"]
-    assert other["start"].tolist() == [0.0, 0.0, 0.0]
-    assert other["duration"].tolist() == [12.0, 12.0, 4.0]
+def test_duration_ratio_reports_the_gap_between_the_two_models():
+    events = build_events(TEXT, 220.0)
+    d = measure_timing_discrepancy(_vendor_frame(), events, stimulus_id="s1")
+    assert d.duration_ratio == pytest.approx(d.tribe_span_s / d.our_total_duration_s)
 
 
 def test_a_frame_with_no_word_rows_names_the_observed_types():
@@ -170,28 +150,35 @@ def test_a_frame_with_no_word_rows_names_the_observed_types():
         }
     )
     with pytest.raises(ValueError, match="Audio"):
-        apply_our_timings(frame, events, stimulus_id="s1")
+        measure_timing_discrepancy(frame, events, stimulus_id="s1")
 
 
-def test_misaligned_word_sequence_raises_rather_than_truncating():
+def test_lowercase_vendor_type_still_matches():
+    """A recapitalisation upstream must not read as 'no words in this stimulus'
+    -- the failure that cost a Colab session once."""
     events = build_events(TEXT, 220.0)
-    words = events["word"].tolist()[:-1]
-    tribe_frame = _fake_tribe_frame(words, list(range(8)), [0.4] * 8)
-    with pytest.raises(ValueError, match="align 1:1"):
-        apply_our_timings(tribe_frame, events, stimulus_id="s1")
-
-
-def test_mismatched_word_text_raises():
-    events = build_events(TEXT, 220.0)
-    words = events["word"].tolist()
-    words[4] = "banana"
-    tribe_frame = _fake_tribe_frame(words, list(range(9)), [0.4] * 9)
-    with pytest.raises(ValueError, match="differ between our event table"):
-        apply_our_timings(tribe_frame, events, stimulus_id="s1")
+    frame = _vendor_frame(n_chunks=1)
+    frame["type"] = frame["type"].str.lower()
+    assert measure_timing_discrepancy(
+        frame, events, stimulus_id="s1"
+    ).tribe_n_word_events == 6
 
 
 def test_missing_tribe_column_names_the_observed_schema():
     events = build_events(TEXT, 220.0)
-    frame = _fake_tribe_frame(events["word"].tolist(), list(range(9)), [0.4] * 9)
+    frame = _vendor_frame(n_chunks=1).drop(columns=["start"])
     with pytest.raises(ValueError, match="Observed columns"):
-        apply_our_timings(frame.drop(columns=["start"]), events, stimulus_id="s1")
+        measure_timing_discrepancy(frame, events, stimulus_id="s1")
+
+
+def test_report_states_that_neither_source_was_adjusted(tmp_path):
+    events = build_events(TEXT, 220.0)
+    d = measure_timing_discrepancy(_vendor_frame(), events, stimulus_id="s1")
+
+    out = write_timing_discrepancy_report([d], tmp_path / "timing_discrepancy.md")
+    body = out.read_text(encoding="utf-8")
+
+    assert "Neither source is" in body and "adjusted to match" in body
+    assert "s1" in body
+    # The reader must be able to see that the span is chunk-relative.
+    assert "180.00" in body

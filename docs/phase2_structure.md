@@ -19,9 +19,10 @@ stimuli/<condition>/*.txt                                       │
    ▼                                                            │
 {stimulus_id: unit_id, condition, variant, body}                │
    │                                                            │
-   │ events.build_events        (220 wpm onsets)                │
+   │ events.build_events        (220 wpm onsets, Track B)       │
    ▼                                                            │
-canonical event table ──► events.to_tribe_events / apply_our_timings
+canonical event table ──► events.measure_timing_discrepancy     │
+   (measured against TRIBE's own frame, never written into it)  │
    │                                                            │
    │           ┌─── GATE 17 ──────────────────────────┐         │
    │           │ verification.gate_17_passed(config)  │         │
@@ -104,7 +105,7 @@ a `ValueError` naming decision gate 16 — the corpus is one unit.
 | File | Purpose | Key entry points |
 |---|---|---|
 | `config.py` | Frozen, self-validating config. `TribeConfig`, `MetricsConfig`, `AnalysisConfig`. Validates a 40-hex revision, allowed precision/atlas/weighting/reading rate; refuses the all-zero placeholder revision for Track A. | `load_config(path, cache_root=None)`, `cfg.identity()`, `cfg.require_resolved_revision()`, `cfg.read_vertex_retention_set()` |
-| `events.py` | The canonical word-event table at 220 wpm (`onset_j = 60·cum_words/r`), plus the isolated TRIBE-schema adapter. Onsets are delegated to `features.word_onsets`, never reimplemented. | `build_events(text, wpm)` → DataFrame; `to_tribe_events(df, filepath=, context=)`; `apply_our_timings(tribe_df, events_df, stimulus_id=)` → `(df, TimingDiscrepancy)`; `write_timing_discrepancy_report(...)` |
+| `events.py` | The canonical word-event table at 220 wpm (`onset_j = 60·cum_words/r`), plus the isolated TRIBE-schema reader. Onsets are delegated to `features.word_onsets`, never reimplemented. The table governs Track B and is **not** written into TRIBE's events frame — the tokenisations cannot be aligned and TRIBE encodes a TTS waveform, so the gap is measured instead. | `build_events(text, wpm)` → DataFrame; `measure_timing_discrepancy(tribe_df, events_df, stimulus_id=)` → `TimingDiscrepancy`; `write_timing_discrepancy_report(...)` |
 | `cache.py` | Content-addressed hybrid cache. Two nested `sha256` keys; three-branch `resolve`; append-only manifest. **A parcel entry is not a vertex hit.** | `TribeCache(config)`, `.resolve(stimulus_id, text, need_vertex=, load_data=True)`, `.write_parcel/.write_vertex`, `.manifest()`, `.verify_manifest()`; `keys_for(text, config)`, `text_hash(text)` |
 | `aggregate.py` | Atlas loading + validation, eq. (6) vertex→parcel, eq. (7) parcel→network. Pure CPU/numpy — no nilearn at import. | `load_atlas(path)` → `Atlas`; `vertices_to_parcels(B_hat, atlas, weighting, stimulus_id=)`; `parcels_to_networks(parcel_df, weighting, atlas)`; `aggregate_prediction(...)`; `file_sha256(path)` |
 | `verification.py` | **Decision gate 17.** Checksums the pinned checkpoint, reproduces Meta's published example (with TRIBE's *own* timings), records the environment, writes the gate artifact. | `resolve_remote_revision`, `verify_checkpoint`, `write_lock`, `pinned_snapshot_dir`, `load_model`, `run_official_example`, `record_environment`, `write_gate_17_artifact`, **`gate_17_passed(config)`** |

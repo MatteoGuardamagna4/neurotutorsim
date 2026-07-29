@@ -48,15 +48,19 @@ the ~360 `primary` stimuli listed in
 Two nested, content-addressed keys, both `sha256` over canonical JSON:
 
 ```
-vertex_key = sha256(text_hash, reading_rate_wpm, checkpoint_revision, precision)
+vertex_key = sha256(text_hash, checkpoint_revision, precision)
 parcel_key = sha256(vertex_key, atlas, parcel_weighting)
 ```
 
 * `text_hash` is `sha256` of the stimulus body with newlines normalised, so a
   CRLF checkout and an LF checkout agree.
-* `reading_rate_wpm` is in the key because our 220 wpm onsets (§6.2) determine
-  the model's input timing. Rerunning at 180 or 260 wpm is a *different
-  prediction*, not the same one.
+* `reading_rate_wpm` is **not** in the key. It was, while §6.2's onsets were
+  being written into TRIBE's events frame. They no longer are: TRIBE renders
+  its own TTS audio and derives every timing from it, so r cannot change a
+  predicted value. Rerunning at 180 or 260 wpm is the *same prediction*, and
+  keeping r in the key would spend three GPU runs against a gated model to
+  produce three identical arrays. r stays in the manifest, where it records the
+  configuration a run was made under.
 * Parcel settings nest **under** the vertex key. Changing the atlas or the
   weighting re-derives parcels from a retained vertex array; it does not
   invalidate the GPU work.
