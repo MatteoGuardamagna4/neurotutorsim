@@ -45,7 +45,12 @@ TRIBE_COL_DURATION = "duration"
 TRIBE_COL_TEXT = "text"
 TRIBE_COL_FILEPATH = "filepath"
 TRIBE_COL_CONTEXT = "context"
-TRIBE_WORD_TYPE = "word"
+
+#: The vendor's own spelling of the word-event type. TRIBE v2 emits capitalised
+#: type names ('Audio', 'Sentence', 'Text', 'Word'); matching is done
+#: case-insensitively (see `_tribe_word_mask`) so a recapitalisation upstream is
+#: not a crash, but frames *we* construct use the vendor's spelling verbatim.
+TRIBE_WORD_TYPE = "Word"
 
 
 def build_events(stimulus_text: str, reading_rate_wpm: float) -> pd.DataFrame:
@@ -203,7 +208,18 @@ class TimingDiscrepancy:
         }
 
 
-def _tribe_word_rows(tribe_df: pd.DataFrame) -> pd.DataFrame:
+def _tribe_word_mask(tribe_df: pd.DataFrame) -> "pd.Series[bool]":
+    """Boolean mask selecting the word rows of a TRIBE events frame.
+
+    A mask rather than a sub-frame, because `apply_our_timings` has to write
+    corrected timings back into the *full* frame: TRIBE's other row types
+    ('Audio', 'Sentence', 'Text') are what its audio and context pathways read,
+    and `model.predict` is only ever handed the whole frame -- that is what gate
+    17 verifies against Meta's example.
+
+    Type matching is case-insensitive. The vendor emits 'Word'; a build that
+    emitted 'word' would otherwise look like a frame containing no words at all.
+    """
     required = {TRIBE_COL_START, TRIBE_COL_DURATION, TRIBE_COL_TEXT}
     missing = sorted(required - set(tribe_df.columns))
     if missing:
@@ -212,15 +228,18 @@ def _tribe_word_rows(tribe_df: pd.DataFrame) -> pd.DataFrame:
             f"{sorted(tribe_df.columns)}. The vendor schema has changed -- update the "
             f"TRIBE_COL_* constants in src/tribe/events.py rather than working around it."
         )
-    if TRIBE_COL_TYPE in tribe_df.columns:
-        rows = tribe_df[tribe_df[TRIBE_COL_TYPE] == TRIBE_WORD_TYPE]
-        if rows.empty:
-            raise ValueError(
-                f"TRIBE events dataframe has no rows of type {TRIBE_WORD_TYPE!r}; "
-                f"observed types: {sorted(tribe_df[TRIBE_COL_TYPE].unique())}"
-            )
-        return rows.reset_index(drop=True)
-    return tribe_df.reset_index(drop=True)
+    if TRIBE_COL_TYPE not in tribe_df.columns:
+        return pd.Series(True, index=tribe_df.index)
+
+    types = tribe_df[TRIBE_COL_TYPE].astype(str).str.strip().str.casefold()
+    mask = types == TRIBE_WORD_TYPE.casefold()
+    if not mask.any():
+        raise ValueError(
+            f"TRIBE events dataframe has no rows of type {TRIBE_WORD_TYPE!r} "
+            f"(compared case-insensitively); observed types: "
+            f"{sorted(tribe_df[TRIBE_COL_TYPE].astype(str).unique())}"
+        )
+    return mask
 
 
 def apply_our_timings(
@@ -231,9 +250,18 @@ def apply_our_timings(
     Returns the corrected TRIBE frame plus the measured discrepancy. Raises if
     the two word sequences do not align: a partial overwrite would silently
     attach our onsets to the wrong words, which is worse than a hard failure.
+
+    The frame returned is the *whole* input frame with the word rows retimed --
+    same rows, same order, same columns. Non-word rows ('Audio', 'Sentence',
+    'Text') are passed through untouched: they index the real TTS waveform that
+    TRIBE just rendered, so retiming them to our reading rate would desynchronise
+    the frame from the audio it describes. The resulting gap between our word
+    onsets and TRIBE's audio is the discrepancy this function measures; per §6.2
+    it is recorded, not reconciled.
     """
     validate_events(events_df)
-    words = _tribe_word_rows(tribe_df)
+    mask = _tribe_word_mask(tribe_df)
+    words = tribe_df[mask.to_numpy()]
 
     ours = [w.lower() for w in events_df["word"].tolist()]
     theirs = [_normalize_token(t) for t in words[TRIBE_COL_TEXT].tolist()]
@@ -256,9 +284,15 @@ def apply_our_timings(
     our_starts = events_df["onset_s"].astype(float).to_numpy()
     offsets = abs(their_starts - our_starts)
 
-    corrected = words.copy()
-    corrected[TRIBE_COL_START] = our_starts
-    corrected[TRIBE_COL_DURATION] = events_df["duration_s"].astype(float).to_numpy()
+    # Positional, not label-based: TRIBE builds this frame by concatenating one
+    # sub-frame per event type, so its index is not guaranteed to be unique and
+    # `.loc` on a duplicated label would write to the wrong rows.
+    corrected = tribe_df.reset_index(drop=True)
+    positions = mask.to_numpy().nonzero()[0]
+    corrected.iloc[positions, corrected.columns.get_loc(TRIBE_COL_START)] = our_starts
+    corrected.iloc[positions, corrected.columns.get_loc(TRIBE_COL_DURATION)] = (
+        events_df["duration_s"].astype(float).to_numpy()
+    )
 
     their_last = words.iloc[-1]
     discrepancy = TimingDiscrepancy(

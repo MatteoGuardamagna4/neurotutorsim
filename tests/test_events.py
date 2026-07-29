@@ -112,6 +112,67 @@ def test_our_timings_win_and_the_discrepancy_is_measured():
     assert discrepancy.n_words == 9
 
 
+def _mixed_type_tribe_frame(words, starts, durations):
+    """A frame shaped like the real vendor output: capitalised type names, and
+    'Audio'/'Text'/'Sentence' rows around the word rows."""
+    rows = [
+        {"type": "Audio", "start": 0.0, "duration": 12.0, "text": None},
+        {"type": "Text", "start": 0.0, "duration": 12.0, "text": TEXT},
+        {"type": "Sentence", "start": 0.0, "duration": 4.0, "text": "One two three."},
+    ]
+    rows += [
+        {"type": "Word", "start": s, "duration": d, "text": w}
+        for w, s, d in zip(words, starts, durations)
+    ]
+    frame = pd.DataFrame(rows)
+    frame["filepath"] = "/tmp/a.mp3"
+    frame["context"] = None
+    # TRIBE concatenates one sub-frame per event type, so the index repeats.
+    frame.index = [0, 0, 0] + list(range(len(words)))
+    return frame
+
+
+def test_capitalised_vendor_type_names_are_recognised():
+    events = build_events(TEXT, 220.0)
+    frame = _mixed_type_tribe_frame(events["word"].tolist(), list(range(9)), [0.4] * 9)
+
+    corrected, discrepancy = apply_our_timings(frame, events, stimulus_id="s1")
+
+    assert discrepancy.n_words == 9
+    word_rows = corrected[corrected["type"] == "Word"]
+    assert word_rows["start"].tolist() == pytest.approx(events["onset_s"].tolist())
+    assert word_rows["duration"].tolist() == pytest.approx(events["duration_s"].tolist())
+
+
+def test_non_word_rows_survive_the_retiming_untouched():
+    events = build_events(TEXT, 220.0)
+    frame = _mixed_type_tribe_frame(events["word"].tolist(), list(range(9)), [0.4] * 9)
+
+    corrected, _ = apply_our_timings(frame, events, stimulus_id="s1")
+
+    # predict() is handed this frame; dropping the Audio/Text/Sentence rows
+    # would silently strip TRIBE's audio and context pathways.
+    assert len(corrected) == len(frame)
+    assert corrected["type"].tolist() == frame["type"].tolist()
+    other = corrected[corrected["type"] != "Word"]
+    assert other["start"].tolist() == [0.0, 0.0, 0.0]
+    assert other["duration"].tolist() == [12.0, 12.0, 4.0]
+
+
+def test_a_frame_with_no_word_rows_names_the_observed_types():
+    events = build_events(TEXT, 220.0)
+    frame = pd.DataFrame(
+        {
+            "type": ["Audio", "Sentence"],
+            "start": [0.0, 0.0],
+            "duration": [1.0, 1.0],
+            "text": [None, "One two three."],
+        }
+    )
+    with pytest.raises(ValueError, match="Audio"):
+        apply_our_timings(frame, events, stimulus_id="s1")
+
+
 def test_misaligned_word_sequence_raises_rather_than_truncating():
     events = build_events(TEXT, 220.0)
     words = events["word"].tolist()[:-1]
