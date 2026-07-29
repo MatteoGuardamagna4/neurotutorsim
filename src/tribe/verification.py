@@ -318,6 +318,53 @@ def load_model(config: TribeConfig, cache_folder: str | Path | None = None):
     return model
 
 
+#: Instructions attached to every headless-rendering failure. Kept in one place
+#: because the failure is silent otherwise: VTK calls `abort()` on a missing X
+#: server, so the process dies with no Python traceback to search for.
+_XVFB_HINT = (
+    "The official example's figure (§6.1 item 14) is rendered by VTK, which needs an X "
+    "display. Colab has none, and a `!python script.py` subprocess cannot use pyvista's "
+    "notebook backend. Install a virtual framebuffer once per session:\n"
+    "    !apt-get install -qq xvfb libgl1-mesa-glx\n"
+    "then rerun. `ensure_offscreen_display()` starts Xvfb itself once the package exists."
+)
+
+
+def ensure_offscreen_display() -> None:
+    """Give this process a display VTK can render into, or stop.
+
+    Called before the model loads rather than before the plot: a missing X
+    server makes VTK abort the interpreter outright -- no exception, no
+    traceback, no gate artifact -- and finding that out after a checkpoint load
+    and a forward pass wastes minutes of GPU time per attempt.
+    """
+    import os
+
+    if os.environ.get("DISPLAY"):
+        return
+
+    try:
+        import pyvista
+    except ImportError as exc:  # pragma: no cover - depends on the Track A stack
+        raise VerificationError(
+            f"no DISPLAY is set and pyvista is not installed, so no virtual framebuffer can "
+            f"be started.\n{_XVFB_HINT}"
+        ) from exc
+
+    try:
+        pyvista.OFF_SCREEN = True
+        pyvista.start_xvfb()
+    except Exception as exc:
+        raise VerificationError(f"could not start a virtual framebuffer.\n{_XVFB_HINT}") from exc
+
+    if not os.environ.get("DISPLAY"):
+        raise VerificationError(
+            f"pyvista.start_xvfb() returned without setting DISPLAY, so VTK would still abort "
+            f"the process.\n{_XVFB_HINT}"
+        )
+    print(f"[tribe] started a virtual framebuffer (DISPLAY={os.environ['DISPLAY']})")
+
+
 def run_official_example(
     config: TribeConfig, work_dir: str | Path | None = None
 ) -> ExampleReport:
@@ -330,6 +377,12 @@ def run_official_example(
     """
     work = Path(work_dir) if work_dir else (config.project_root / "outputs" / "verification")
     work.mkdir(parents=True, exist_ok=True)
+
+    # Before the model, not after: the figure needs a display, and discovering
+    # that at the end costs a checkpoint load plus a GPU forward pass. VTK also
+    # aborts the interpreter rather than raising, so the run would end with no
+    # traceback and nothing written.
+    ensure_offscreen_display()
 
     model = load_model(config, cache_folder=work / "tribe_cache")
 

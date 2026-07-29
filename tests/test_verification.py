@@ -64,6 +64,65 @@ def _fake_snapshot(tmp_path: Path, revision: str = PINNED_REVISION, ckpt="best.c
 
 
 # ---------------------------------------------------------------------------
+# ensure_offscreen_display
+# ---------------------------------------------------------------------------
+
+
+def _fake_pyvista(monkeypatch, start_xvfb):
+    module = types.ModuleType("pyvista")
+    module.OFF_SCREEN = False
+    module.start_xvfb = start_xvfb
+    monkeypatch.setitem(sys.modules, "pyvista", module)
+    return module
+
+
+def test_an_existing_display_is_left_alone(monkeypatch):
+    monkeypatch.setenv("DISPLAY", ":0")
+
+    def _must_not_run():  # pragma: no cover - the point is it is not called
+        raise AssertionError("should not start a framebuffer when one exists")
+
+    _fake_pyvista(monkeypatch, _must_not_run)
+    verification.ensure_offscreen_display()
+
+
+def test_a_framebuffer_is_started_when_headless(monkeypatch):
+    monkeypatch.delenv("DISPLAY", raising=False)
+
+    def _start():
+        import os
+
+        os.environ["DISPLAY"] = ":99"
+
+    module = _fake_pyvista(monkeypatch, _start)
+    verification.ensure_offscreen_display()
+    assert module.OFF_SCREEN is True
+
+
+def test_a_framebuffer_that_cannot_start_raises_with_the_fix(monkeypatch):
+    monkeypatch.delenv("DISPLAY", raising=False)
+
+    def _start():
+        raise OSError("Please install Xvfb")
+
+    _fake_pyvista(monkeypatch, _start)
+    with pytest.raises(VerificationError, match="xvfb"):
+        verification.ensure_offscreen_display()
+
+
+def test_a_silent_no_op_framebuffer_raises(monkeypatch):
+    """VTK aborts the interpreter on a missing X server -- no exception to catch.
+
+    So a `start_xvfb()` that returns without setting DISPLAY has to be caught
+    here, or the next VTK call kills the process with no traceback.
+    """
+    monkeypatch.delenv("DISPLAY", raising=False)
+    _fake_pyvista(monkeypatch, lambda: None)
+    with pytest.raises(VerificationError, match="without setting DISPLAY"):
+        verification.ensure_offscreen_display()
+
+
+# ---------------------------------------------------------------------------
 # hash_snapshot
 # ---------------------------------------------------------------------------
 
