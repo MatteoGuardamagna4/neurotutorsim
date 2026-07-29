@@ -14,7 +14,10 @@ artifact.
 from __future__ import annotations
 
 import json
+import os
 import platform
+import shutil
+import subprocess
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -334,6 +337,62 @@ _XVFB_HINT = (
     "then rerun. `ensure_offscreen_display()` starts Xvfb itself once the package exists."
 )
 
+#: Display number for the framebuffer we start. :99 by convention -- high enough
+#: not to collide with a real session on a workstation that has one.
+XVFB_DISPLAY = ":99"
+
+#: Where the X server puts its unix socket. Named so tests can point it at a
+#: temp directory instead of the real /tmp.
+XVFB_SOCKET_DIR = Path("/tmp/.X11-unix")
+
+#: Module-level so the server outlives the call that started it. A Popen that
+#: goes out of scope is not killed, but dropping the handle means losing the
+#: exit status, which is the only evidence when Xvfb dies on startup.
+_XVFB_PROCESS = None
+
+
+def start_xvfb(display: str = XVFB_DISPLAY, timeout_s: float = 10.0) -> str:
+    """Launch Xvfb, wait for its socket, and point this process at it.
+
+    pyvista shipped a `start_xvfb()` helper until 0.46 removed it, so calling
+    that made gate 17 depend on which pyvista the Colab image happened to
+    install. Starting the server here is one subprocess and one environment
+    variable, and behaves the same on every version.
+
+    Waits for `/tmp/.X11-unix/X<n>` rather than sleeping a fixed interval:
+    connecting before the socket exists puts us back at the VTK abort this
+    whole function exists to prevent.
+    """
+    global _XVFB_PROCESS
+
+    if shutil.which("Xvfb") is None:
+        raise VerificationError(f"the Xvfb binary is not on PATH.\n{_XVFB_HINT}")
+
+    if _XVFB_PROCESS is None or _XVFB_PROCESS.poll() is not None:
+        _XVFB_PROCESS = subprocess.Popen(
+            ["Xvfb", display, "-screen", "0", "1024x768x24", "-nolisten", "tcp"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+    socket = XVFB_SOCKET_DIR / f"X{display.lstrip(':')}"
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if socket.exists():
+            os.environ["DISPLAY"] = display
+            return display
+        if _XVFB_PROCESS.poll() is not None:
+            raise VerificationError(
+                f"Xvfb exited immediately (code {_XVFB_PROCESS.returncode}) instead of "
+                f"serving {display}.\n{_XVFB_HINT}"
+            )
+        time.sleep(0.1)
+
+    raise VerificationError(
+        f"Xvfb did not create {socket} within {timeout_s:.0f}s. Rendering would abort the "
+        f"process rather than raise, so this stops here.\n{_XVFB_HINT}"
+    )
+
 
 def ensure_offscreen_display() -> None:
     """Give this process a display VTK can render into, or stop.
@@ -343,29 +402,26 @@ def ensure_offscreen_display() -> None:
     traceback, no gate artifact -- and finding that out after a checkpoint load
     and a forward pass wastes minutes of GPU time per attempt.
     """
-    import os
-
     if os.environ.get("DISPLAY"):
         return
 
+    os.environ.setdefault("PYVISTA_OFF_SCREEN", "true")
     try:
         import pyvista
+
+        pyvista.OFF_SCREEN = True
     except ImportError as exc:  # pragma: no cover - depends on the Track A stack
         raise VerificationError(
-            f"no DISPLAY is set and pyvista is not installed, so no virtual framebuffer can "
-            f"be started.\n{_XVFB_HINT}"
+            f"no DISPLAY is set and pyvista is not installed, so nothing can render the "
+            f"official example's figure.\n{_XVFB_HINT}"
         ) from exc
 
-    try:
-        pyvista.OFF_SCREEN = True
-        pyvista.start_xvfb()
-    except Exception as exc:
-        raise VerificationError(f"could not start a virtual framebuffer.\n{_XVFB_HINT}") from exc
+    start_xvfb()
 
-    if not os.environ.get("DISPLAY"):
+    if not os.environ.get("DISPLAY"):  # pragma: no cover - start_xvfb raises first
         raise VerificationError(
-            f"pyvista.start_xvfb() returned without setting DISPLAY, so VTK would still abort "
-            f"the process.\n{_XVFB_HINT}"
+            f"the framebuffer started but DISPLAY is unset, so VTK would still abort the "
+            f"process.\n{_XVFB_HINT}"
         )
     print(f"[tribe] started a virtual framebuffer (DISPLAY={os.environ['DISPLAY']})")
 
