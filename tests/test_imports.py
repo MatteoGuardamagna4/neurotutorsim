@@ -11,6 +11,7 @@ import importlib
 import pytest
 
 SUBMODULES = [
+    "src.colab",
     "src.generation",
     "src.validation",
     "src.tribe",
