@@ -210,13 +210,54 @@ def write_lock(config: TribeConfig) -> Dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
+def pinned_snapshot_dir(config: TribeConfig) -> Path:
+    """Local directory holding *the pinned revision* of the checkpoint.
+
+    `snapshot_download(revision=<sha>)` is what does the pinning; the returned
+    path is a `.../snapshots/<sha>/` directory, and the SHA in that path is
+    checked here so a silently redirected download cannot pass for a pin.
+    """
+    revision = config.require_resolved_revision()
+    snapshot = download_checkpoint(config)
+    if revision not in snapshot.parts:
+        raise VerificationError(
+            f"snapshot_download({config.checkpoint!r}, revision={revision!r}) returned "
+            f"{snapshot}, whose path does not contain the pinned revision. Refusing to load: "
+            f"the directory cannot be shown to be the pinned commit."
+        )
+    return snapshot
+
+
+def _pinned_checkpoint_name(snapshot: Path, default: str) -> str:
+    """The `.ckpt` file to load out of a pinned snapshot directory.
+
+    Prefers the build's own default name; falls back to a single unambiguous
+    `.ckpt`. Zero or several candidates is a stop, not a guess -- loading the
+    wrong weights would be invisible downstream.
+    """
+    if (snapshot / default).is_file():
+        return default
+    candidates = sorted(p.name for p in snapshot.glob("*.ckpt") if p.is_file())
+    if len(candidates) == 1:
+        return candidates[0]
+    raise VerificationError(
+        f"the pinned snapshot {snapshot} contains no file named {default!r} and "
+        f"{len(candidates)} alternative .ckpt file(s) ({candidates}). Cannot decide which "
+        f"weights the pinned revision means. Stop and report this."
+    )
+
+
 def load_model(config: TribeConfig, cache_folder: str | Path | None = None):
     """`TribeModel.from_pretrained` at the pinned revision, in eval mode.
 
-    If the installed TRIBE build does not accept a `revision` argument, this
-    stops rather than loading whatever `main` currently points at -- an
-    unpinned checkpoint silently breaks §6.1 reproducibility and every cache
-    key derived from the revision.
+    The published tribev2 build takes `checkpoint_dir` and resolves the repo
+    itself, with no way to ask for a commit -- calling it with the bare repo id
+    would load whatever `main` points at today, silently breaking §6.1 and
+    every cache key derived from the revision. So the pin is applied on our
+    side: `snapshot_download(revision=<sha>)` (the same download
+    `verify_checkpoint` checksums, so it is already on disk by the time gate 17
+    reaches here) and the resulting local directory is handed over. A build
+    that *does* expose `revision` is used through that argument instead.
     """
     import inspect
 
@@ -234,21 +275,33 @@ def load_model(config: TribeConfig, cache_folder: str | Path | None = None):
 
     revision = config.require_resolved_revision()
     signature = inspect.signature(TribeModel.from_pretrained)
-    if "revision" not in signature.parameters:
-        raise VerificationError(
-            "the installed tribev2 build's TribeModel.from_pretrained does not accept a "
-            f"`revision` argument (signature: {signature}). Phase II pins the checkpoint by "
-            "commit SHA (§6.1) and will not load an unpinned model. Stop and report this: "
-            "either the pinned tribev2 commit changed, or the checkpoint must be "
-            "pre-downloaded at the pinned revision and passed as a local path."
-        )
 
-    kwargs: Dict[str, Any] = {"revision": revision}
-    if cache_folder is not None:
+    kwargs: Dict[str, Any] = {}
+    if cache_folder is not None and "cache_folder" in signature.parameters:
         kwargs["cache_folder"] = str(cache_folder)
 
-    model = TribeModel.from_pretrained(config.checkpoint, **kwargs)
-    print(f"[tribe] loaded {config.checkpoint} at revision {revision}")
+    if "revision" in signature.parameters:
+        target: str | Path = config.checkpoint
+        kwargs["revision"] = revision
+        pinned_by = "revision argument"
+    else:
+        if "checkpoint_dir" not in signature.parameters:
+            raise VerificationError(
+                "the installed tribev2 build's TribeModel.from_pretrained accepts neither a "
+                f"`revision` nor a `checkpoint_dir` argument (signature: {signature}). Phase II "
+                "pins the checkpoint by commit SHA (§6.1) and has no way to pin this build. "
+                "Stop and report this: the pinned tribev2 commit changed."
+            )
+        target = pinned_snapshot_dir(config)
+        pinned_by = "local snapshot of the pinned revision"
+        name_param = signature.parameters.get("checkpoint_name")
+        if name_param is not None and name_param.default is not inspect.Parameter.empty:
+            kwargs["checkpoint_name"] = _pinned_checkpoint_name(
+                Path(target), str(name_param.default)
+            )
+
+    model = TribeModel.from_pretrained(target, **kwargs)
+    print(f"[tribe] loaded {config.checkpoint} at revision {revision} ({pinned_by})")
 
     inner = getattr(model, "model", model)
     if hasattr(inner, "eval"):

@@ -107,7 +107,7 @@ a `ValueError` naming decision gate 16 — the corpus is one unit.
 | `events.py` | The canonical word-event table at 220 wpm (`onset_j = 60·cum_words/r`), plus the isolated TRIBE-schema adapter. Onsets are delegated to `features.word_onsets`, never reimplemented. | `build_events(text, wpm)` → DataFrame; `to_tribe_events(df, filepath=, context=)`; `apply_our_timings(tribe_df, events_df, stimulus_id=)` → `(df, TimingDiscrepancy)`; `write_timing_discrepancy_report(...)` |
 | `cache.py` | Content-addressed hybrid cache. Two nested `sha256` keys; three-branch `resolve`; append-only manifest. **A parcel entry is not a vertex hit.** | `TribeCache(config)`, `.resolve(stimulus_id, text, need_vertex=, load_data=True)`, `.write_parcel/.write_vertex`, `.manifest()`, `.verify_manifest()`; `keys_for(text, config)`, `text_hash(text)` |
 | `aggregate.py` | Atlas loading + validation, eq. (6) vertex→parcel, eq. (7) parcel→network. Pure CPU/numpy — no nilearn at import. | `load_atlas(path)` → `Atlas`; `vertices_to_parcels(B_hat, atlas, weighting, stimulus_id=)`; `parcels_to_networks(parcel_df, weighting, atlas)`; `aggregate_prediction(...)`; `file_sha256(path)` |
-| `verification.py` | **Decision gate 17.** Checksums the pinned checkpoint, reproduces Meta's published example (with TRIBE's *own* timings), records the environment, writes the gate artifact. | `resolve_remote_revision`, `verify_checkpoint`, `write_lock`, `load_model`, `run_official_example`, `record_environment`, `write_gate_17_artifact`, **`gate_17_passed(config)`** |
+| `verification.py` | **Decision gate 17.** Checksums the pinned checkpoint, reproduces Meta's published example (with TRIBE's *own* timings), records the environment, writes the gate artifact. | `resolve_remote_revision`, `verify_checkpoint`, `write_lock`, `pinned_snapshot_dir`, `load_model`, `run_official_example`, `record_environment`, `write_gate_17_artifact`, **`gate_17_passed(config)`** |
 | `inference.py` | The idempotent GPU loop. Imports torch — never import from Track B. | `run_inference(config, stimuli, limit=None)`; `predict_stimulus(model, id, text, config)`; `set_determinism(config)`; `assert_bitwise_reproducible(...)`; `load_stimuli_csv(path)`, `iter_repo_stimuli(root)` |
 
 Modified: **`src/generation/stimulus_io.py`** gains `build_stimulus_index(root)`
@@ -198,6 +198,9 @@ timing decision, guard/gate table, open questions), `.gitignore` (cache roots).
 |---|---|
 | Revision is the all-zero placeholder | Track B loads fine; Track A raises with the command to resolve it |
 | `precision: fp16` | `load_model` raises — the cache key would claim fp16 while the model loaded fp32 |
+| Installed `tribev2` takes no `revision` (the published build) | `load_model` pins it anyway: `snapshot_download(revision=<sha>)`, SHA checked in the returned path, directory passed as `checkpoint_dir` |
+| Snapshot path lacks the pinned SHA, or holds 0 / >1 `.ckpt` files | `load_model` raises — the weights cannot be shown to be the pinned ones |
+| Installed `tribev2` takes neither `revision` nor `checkpoint_dir` | `load_model` raises — no way left to pin, the build changed |
 | Gate 17 artifact missing or from another revision | `run_inference` refuses to touch a project stimulus |
 | Prediction has ≠ 20 484 vertices | `predict_stimulus` raises — every parcel mapping downstream would be wrong |
 | Vertex needed, only parcels cached | `resolve` returns a **miss**, reason `parcel_only_vertex_required` — never fabricated |
