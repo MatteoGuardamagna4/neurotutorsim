@@ -64,6 +64,39 @@ def _fake_snapshot(tmp_path: Path, revision: str = PINNED_REVISION, ckpt="best.c
 
 
 # ---------------------------------------------------------------------------
+# hash_snapshot
+# ---------------------------------------------------------------------------
+
+
+def test_hash_snapshot_does_not_depend_on_where_the_hub_cache_lives(tmp_path):
+    """The `.cache` skip is relative to the snapshot, not to the filesystem.
+
+    The default hub cache is `~/.cache/huggingface`, so an absolute-path test
+    excludes every file and the lock comes out empty; a Drive-backed `HF_HOME`
+    has no `.cache` component and includes them all. Same revision, two locks.
+    """
+    under_dot_cache = tmp_path / ".cache" / "huggingface" / "snapshots" / PINNED_REVISION
+    elsewhere = tmp_path / "drive" / "hf" / "snapshots" / PINNED_REVISION
+    for root in (under_dot_cache, elsewhere):
+        root.mkdir(parents=True)
+        (root / "best.ckpt").write_bytes(b"weights")
+        (root / "config.yaml").write_bytes(b"config")
+        # huggingface_hub's own bookkeeping, which must stay out of the lock
+        (root / ".cache" / "huggingface" / "download").mkdir(parents=True)
+        (root / ".cache" / "huggingface" / "download" / "best.ckpt.metadata").write_bytes(b"x")
+
+    assert verification.hash_snapshot(under_dot_cache) == verification.hash_snapshot(elsewhere)
+    assert sorted(verification.hash_snapshot(elsewhere)) == ["best.ckpt", "config.yaml"]
+
+
+def test_hash_snapshot_raises_on_an_empty_snapshot(tmp_path):
+    empty = tmp_path / "snapshots" / PINNED_REVISION
+    empty.mkdir(parents=True)
+    with pytest.raises(VerificationError, match="no files to checksum"):
+        verification.hash_snapshot(empty)
+
+
+# ---------------------------------------------------------------------------
 # The published build: pin via a pre-downloaded local snapshot
 # ---------------------------------------------------------------------------
 

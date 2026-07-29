@@ -1,18 +1,34 @@
 {
   "_comment": [
-    "Checksum lock for TRIBE v2 checkpoint files (brief §6.1 items 11-13).",
+    "Checksum lock for TRIBE v2 checkpoint files (brief \u00a76.1 items 11-13).",
     "Keys are '<repo_id>@<40-hex revision>'. Values map a repo-relative file",
     "path to its sha256. verify_checkpoint() downloads the pinned revision,",
     "recomputes each hash, and raises on any mismatch or missing entry.",
     "",
-    "This file is EMPTY until someone with approved Llama-3.2-3B access runs:",
+    "The entry below was recorded on 2026-07-29 and must match the revision",
+    "pinned in config/tribe.yaml -- tests/test_tribe_config.py fails if the two",
+    "drift apart. facebook/tribev2 is not gated (only its Llama-3.2-3B encoder",
+    "is), so --write-lock needs no GPU and no approved access: it downloads and",
+    "hashes, it never loads a model.",
+    "",
+    "To move the pin to another revision:",
     "  python scripts/run_tribe_verification.py --config config/tribe.yaml \\",
-    "      --resolve-revision            # prints the real revision SHA",
+    "      --resolve-revision            # prints the Hub's current SHA",
     "  python scripts/run_tribe_verification.py --config config/tribe.yaml \\",
     "      --write-lock                  # records checksums for that revision",
     "",
     "--write-lock is deliberately a separate, explicit opt-in: recording a",
-    "checksum you have not verified turns the lock into a rubber stamp."
+    "checksum you have not verified turns the lock into a rubber stamp. It also",
+    "refuses to overwrite an existing entry, so a re-pin is a decision about the",
+    "old one too."
   ],
-  "entries": {}
+  "entries": {
+    "facebook/tribev2@f894e783020944dcd96e5568550afe2aa9743f9f": {
+      ".gitattributes": "11ad7efa24975ee4b0c3c3a38ed18737f0658a5f75a0a96787b576a78a023361",
+      "best.ckpt": "9c79ffff6b642b7b0c71d558c935fb3fa33f2788bfb509feead94fafbba2f321",
+      "config.yaml": "a17212a257dfd91424e20a5fa8640d107fbbf79e842b6b2d72d17d24399dc9ef",
+      "LICENSE": "0afca3145596cd005f6f6ed977313ea31928094fc5b4aaabc21bb765ea369d09",
+      "README.md": "04cc500c72c65fb515037719874c9b9cacc559c0e4db8c30598adad7995498e5"
+    }
+  }
 }

@@ -136,14 +136,23 @@ def download_checkpoint(config: TribeConfig) -> Path:
 
 
 def hash_snapshot(snapshot_dir: str | Path) -> Dict[str, str]:
-    """sha256 of every regular file in the snapshot, keyed by relative path."""
+    """sha256 of every regular file in the snapshot, keyed by relative path.
+
+    The `.cache` skip targets huggingface_hub's own download bookkeeping
+    *inside* the snapshot, so it is tested on the path relative to the snapshot
+    root. Testing the absolute path would make the result depend on where the
+    hub cache happens to live: the default `~/.cache/huggingface` would exclude
+    every file, while a Drive-backed `HF_HOME` would include them all -- the
+    same revision hashing to two different locks.
+    """
     from src.tribe.aggregate import file_sha256
 
     root = Path(snapshot_dir)
     hashes: Dict[str, str] = {}
     for item in sorted(root.rglob("*")):
-        if item.is_file() and ".cache" not in item.parts:
-            hashes[item.relative_to(root).as_posix()] = file_sha256(item)
+        relative = item.relative_to(root)
+        if item.is_file() and ".cache" not in relative.parts:
+            hashes[relative.as_posix()] = file_sha256(item)
     if not hashes:
         raise VerificationError(f"snapshot directory {root} contains no files to checksum")
     return hashes

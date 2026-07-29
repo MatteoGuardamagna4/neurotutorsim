@@ -32,11 +32,42 @@ def test_shipped_config_loads():
     assert config.project_root == REPO_ROOT
 
 
-def test_shipped_config_ships_an_unresolved_revision():
-    """The repo cannot pin a real SHA until Llama-3.2-3B access is approved.
-    The placeholder must load for Track B and refuse for Track A."""
+def test_shipped_config_is_pinned_to_a_resolved_revision():
+    """The pin has to be the *repo's*, not a session's.
+
+    A Colab clone that resolves the SHA in-session and dies with it satisfies
+    nothing: §6.1 reproducibility means the tracked config names the commit.
+    """
     config = load_config(SHIPPED_CONFIG)
-    assert config.checkpoint_revision == UNRESOLVED_REVISION
+    assert config.revision_is_resolved
+    assert config.require_resolved_revision() == config.checkpoint_revision
+
+
+def test_shipped_lock_covers_the_pinned_revision():
+    """Config and lock move together or the repo is broken.
+
+    `verify_checkpoint` refuses a revision with no lock entry, so a pin whose
+    checksums were never recorded fails gate 17 on every machine.
+    """
+    import json
+
+    config = load_config(SHIPPED_CONFIG)
+    lock = json.loads(config.checkpoints_lock.read_text(encoding="utf-8"))
+    key = f"{config.checkpoint}@{config.checkpoint_revision}"
+    assert key in lock["entries"], (
+        f"{config.checkpoints_lock} has no entry for {key}; record one with "
+        f"`python scripts/run_tribe_verification.py --config config/tribe.yaml --write-lock`"
+    )
+    assert lock["entries"][key], "the lock entry for the pinned revision is empty"
+
+
+def test_the_unresolved_placeholder_still_refuses_track_a(tmp_path):
+    """The placeholder path stays live -- it is what a re-pin passes back through.
+
+    It must keep loading (Track B analysis works on a laptop) and keep raising
+    for Track A.
+    """
+    config = load_config(_write(tmp_path, checkpoint_revision=UNRESOLVED_REVISION))
     assert not config.revision_is_resolved
     with pytest.raises(ConfigError, match="unresolved"):
         config.require_resolved_revision()
