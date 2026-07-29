@@ -204,9 +204,14 @@ def write_lock(config: TribeConfig) -> Dict[str, str]:
     key = _lock_key(config)
     if key in lock["entries"]:
         raise VerificationError(
-            f"{config.checkpoints_lock} already has an entry for {key!r}. Refusing to "
-            f"overwrite: a changed checksum for a pinned revision means either the pin or "
-            f"the download is wrong. Investigate before editing the lock by hand."
+            f"{config.checkpoints_lock} already holds {len(lock['entries'][key])} checksum(s) "
+            f"for {key!r}, the revision currently pinned in {config.source_path}.\n\n"
+            f"If you did not mean to re-pin, nothing is wrong and nothing is left to do: a "
+            f"fresh clone arrives in exactly this state. Skip this step and run gate 17 "
+            f"(no --write-lock), which is what verifies the download against this entry.\n\n"
+            f"If you did mean to re-pin, note that this is refusing to overwrite: a changed "
+            f"checksum for an already-locked revision means either the pin or the download is "
+            f"wrong. Investigate before editing the lock by hand."
         )
     hashes = hash_snapshot(download_checkpoint(config))
     lock["entries"][key] = hashes
