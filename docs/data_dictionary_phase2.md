@@ -187,7 +187,7 @@ carries `winsorized = False`.
 | `gate`, `passed` | int, bool | `17`, `true` — written only on a full pass |
 | `checkpoint`, `checkpoint_revision`, `precision` | str | config at verification time |
 | `checksum` | object | per-file `sha256` of the downloaded snapshot vs `config/checkpoints.lock` |
-| `official_example` | object | timesteps, vertices, runtime, figure path, summary statistics |
+| `official_example` | object | timesteps, vertices, runtime, summary statistics |
 | `environment` | object | GPU, VRAM, CUDA, Python, platform, package versions |
 | `written_utc` | str | ISO 8601 |
 

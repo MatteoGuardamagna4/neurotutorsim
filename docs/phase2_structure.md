@@ -201,7 +201,6 @@ timing decision, guard/gate table, open questions), `.gitignore` (cache roots).
 | Installed `tribev2` takes no `revision` (the published build) | `load_model` pins it anyway: `snapshot_download(revision=<sha>)`, SHA checked in the returned path, directory passed as `checkpoint_dir` |
 | Snapshot path lacks the pinned SHA, or holds 0 / >1 `.ckpt` files | `load_model` raises — the weights cannot be shown to be the pinned ones |
 | Installed `tribev2` takes neither `revision` nor `checkpoint_dir` | `load_model` raises — no way left to pin, the build changed |
-| Headless machine, no X display | `ensure_offscreen_display` starts Xvfb, or raises **before** the model loads — VTK would otherwise `abort()` after the GPU work, with no traceback |
 | Gate 17 artifact missing or from another revision | `run_inference` refuses to touch a project stimulus |
 | Prediction has ≠ 20 484 vertices | `predict_stimulus` raises — every parcel mapping downstream would be wrong |
 | Vertex needed, only parcels cached | `resolve` returns a **miss**, reason `parcel_only_vertex_required` — never fabricated |

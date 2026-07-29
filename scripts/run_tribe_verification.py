@@ -89,7 +89,6 @@ def main() -> int:
         f"      predictions: {example.n_timesteps} timesteps x {example.n_vertices} vertices "
         f"in {example.runtime_s:.1f}s"
     )
-    print(f"      figure: {example.figure_path}")
 
     print("[3/4] recording the environment")
     environment = verification.record_environment(config, runtime_s=time.perf_counter() - started)

@@ -14,10 +14,7 @@ artifact.
 from __future__ import annotations
 
 import json
-import os
 import platform
-import shutil
-import subprocess
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -79,7 +76,6 @@ class ExampleReport:
     n_timesteps: int
     n_vertices: int
     runtime_s: float
-    figure_path: Optional[str]
     summary: Dict[str, float]
 
     def as_dict(self) -> Dict[str, Any]:
@@ -87,7 +83,6 @@ class ExampleReport:
             "n_timesteps": self.n_timesteps,
             "n_vertices": self.n_vertices,
             "runtime_s": self.runtime_s,
-            "figure_path": self.figure_path,
             "summary": self.summary,
         }
 
@@ -326,106 +321,6 @@ def load_model(config: TribeConfig, cache_folder: str | Path | None = None):
     return model
 
 
-#: Instructions attached to every headless-rendering failure. Kept in one place
-#: because the failure is silent otherwise: VTK calls `abort()` on a missing X
-#: server, so the process dies with no Python traceback to search for.
-_XVFB_HINT = (
-    "The official example's figure (§6.1 item 14) is rendered by VTK, which needs an X "
-    "display. Colab has none, and a `!python script.py` subprocess cannot use pyvista's "
-    "notebook backend. Install a virtual framebuffer once per session:\n"
-    "    !apt-get install -qq xvfb libgl1-mesa-glx\n"
-    "then rerun. `ensure_offscreen_display()` starts Xvfb itself once the package exists."
-)
-
-#: Display number for the framebuffer we start. :99 by convention -- high enough
-#: not to collide with a real session on a workstation that has one.
-XVFB_DISPLAY = ":99"
-
-#: Where the X server puts its unix socket. Named so tests can point it at a
-#: temp directory instead of the real /tmp.
-XVFB_SOCKET_DIR = Path("/tmp/.X11-unix")
-
-#: Module-level so the server outlives the call that started it. A Popen that
-#: goes out of scope is not killed, but dropping the handle means losing the
-#: exit status, which is the only evidence when Xvfb dies on startup.
-_XVFB_PROCESS = None
-
-
-def start_xvfb(display: str = XVFB_DISPLAY, timeout_s: float = 10.0) -> str:
-    """Launch Xvfb, wait for its socket, and point this process at it.
-
-    pyvista shipped a `start_xvfb()` helper until 0.46 removed it, so calling
-    that made gate 17 depend on which pyvista the Colab image happened to
-    install. Starting the server here is one subprocess and one environment
-    variable, and behaves the same on every version.
-
-    Waits for `/tmp/.X11-unix/X<n>` rather than sleeping a fixed interval:
-    connecting before the socket exists puts us back at the VTK abort this
-    whole function exists to prevent.
-    """
-    global _XVFB_PROCESS
-
-    if shutil.which("Xvfb") is None:
-        raise VerificationError(f"the Xvfb binary is not on PATH.\n{_XVFB_HINT}")
-
-    if _XVFB_PROCESS is None or _XVFB_PROCESS.poll() is not None:
-        _XVFB_PROCESS = subprocess.Popen(
-            ["Xvfb", display, "-screen", "0", "1024x768x24", "-nolisten", "tcp"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-
-    socket = XVFB_SOCKET_DIR / f"X{display.lstrip(':')}"
-    deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline:
-        if socket.exists():
-            os.environ["DISPLAY"] = display
-            return display
-        if _XVFB_PROCESS.poll() is not None:
-            raise VerificationError(
-                f"Xvfb exited immediately (code {_XVFB_PROCESS.returncode}) instead of "
-                f"serving {display}.\n{_XVFB_HINT}"
-            )
-        time.sleep(0.1)
-
-    raise VerificationError(
-        f"Xvfb did not create {socket} within {timeout_s:.0f}s. Rendering would abort the "
-        f"process rather than raise, so this stops here.\n{_XVFB_HINT}"
-    )
-
-
-def ensure_offscreen_display() -> None:
-    """Give this process a display VTK can render into, or stop.
-
-    Called before the model loads rather than before the plot: a missing X
-    server makes VTK abort the interpreter outright -- no exception, no
-    traceback, no gate artifact -- and finding that out after a checkpoint load
-    and a forward pass wastes minutes of GPU time per attempt.
-    """
-    if os.environ.get("DISPLAY"):
-        return
-
-    os.environ.setdefault("PYVISTA_OFF_SCREEN", "true")
-    try:
-        import pyvista
-
-        pyvista.OFF_SCREEN = True
-    except ImportError as exc:  # pragma: no cover - depends on the Track A stack
-        raise VerificationError(
-            f"no DISPLAY is set and pyvista is not installed, so nothing can render the "
-            f"official example's figure.\n{_XVFB_HINT}"
-        ) from exc
-
-    start_xvfb()
-
-    if not os.environ.get("DISPLAY"):  # pragma: no cover - start_xvfb raises first
-        raise VerificationError(
-            f"the framebuffer started but DISPLAY is unset, so VTK would still abort the "
-            f"process.\n{_XVFB_HINT}"
-        )
-    print(f"[tribe] started a virtual framebuffer (DISPLAY={os.environ['DISPLAY']})")
-
-
 def run_official_example(
     config: TribeConfig, work_dir: str | Path | None = None
 ) -> ExampleReport:
@@ -439,12 +334,6 @@ def run_official_example(
     work = Path(work_dir) if work_dir else (config.project_root / "outputs" / "verification")
     work.mkdir(parents=True, exist_ok=True)
 
-    # Before the model, not after: the figure needs a display, and discovering
-    # that at the end costs a checkpoint load plus a GPU forward pass. VTK also
-    # aborts the interpreter rather than raising, so the run would end with no
-    # traceback and nothing written.
-    ensure_offscreen_display()
-
     model = load_model(config, cache_folder=work / "tribe_cache")
 
     text_path = work / "official_example.txt"
@@ -452,7 +341,10 @@ def run_official_example(
 
     started = time.perf_counter()
     events = model.get_events_dataframe(text_path=text_path)
-    predictions, segments = model.predict(events=events)
+    # `predict` also returns the per-timestep stimulus segments, which only the
+    # demo's brain rendering consumed. Gate 17 reproduces the example
+    # numerically, so they are dropped here.
+    predictions, _segments = model.predict(events=events)
     runtime_s = time.perf_counter() - started
 
     import numpy as np
@@ -471,13 +363,10 @@ def run_official_example(
             f"every parcel mapping downstream would be wrong."
         )
 
-    figure_path = _plot_example(model, array, segments, work)
-
     return ExampleReport(
         n_timesteps=int(n_timesteps),
         n_vertices=int(n_vertices),
         runtime_s=float(runtime_s),
-        figure_path=str(figure_path) if figure_path else None,
         summary={
             "mean": float(array.mean()),
             "sd": float(array.std(ddof=0)),
@@ -485,26 +374,6 @@ def run_official_example(
             "max": float(array.max()),
         },
     )
-
-
-def _plot_example(model, array, segments, work: Path) -> Optional[Path]:
-    """Reproduce the demo's timestep visualisation (§6.1 item 14)."""
-    from tribev2.plotting import PlotBrain
-
-    n = min(15, array.shape[0])
-    plotter = PlotBrain(mesh="fsaverage5")
-    figure = plotter.plot_timesteps(
-        array[:n],
-        segments=segments[:n],
-        cmap="fire",
-        norm_percentile=99,
-        vmin=0.6,
-        alpha_cmap=(0, 0.2),
-        show_stimuli=True,
-    )
-    out = work / "official_example_timesteps.png"
-    figure.savefig(out, dpi=120, bbox_inches="tight")
-    return out
 
 
 # ---------------------------------------------------------------------------
