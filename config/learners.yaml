@@ -1,0 +1,311 @@
+# Phase III configuration -- synthetic learner engine (brief §7).
+#
+# Validated on load by src/learners/config.py. Unknown keys raise. Nothing is
+# coerced. Every value here is an ASSUMPTION unless the comment names a brief
+# section that fixes it; §7.2 requires the baseline parameter values to be
+# treated as assumptions rather than as findings.
+#
+# ---------------------------------------------------------------------------
+# THE low / medium / high CONVENTION
+# ---------------------------------------------------------------------------
+# A leaf is either
+#   * fixed   -- a scalar or list, identical at every setting; or
+#   * swept   -- a mapping whose keys are exactly {low, medium, high}.
+#
+# `parameter_setting` below selects which arm of every swept leaf is resolved.
+# `medium` is the baseline. The three arms exist so §7.2's sensitivity analysis
+# is one CLI flag (`--setting low`), not an edit to a tracked config file.
+#
+# Values fixed by the brief (stratum weights, the state bounds implied by
+# eq. 15) are written as fixed leaves so a sweep cannot silently move them.
+
+parameter_setting: medium
+
+# ---------------------------------------------------------------------------
+# Learner population (§7.1-7.2, eq. 15-16)
+# ---------------------------------------------------------------------------
+population:
+  # Default population size. §9.3's 5,000 is the `high` arm.
+  n_learners: {low: 500, medium: 2000, high: 5000}
+
+  # Three prior-knowledge strata. The weights are the brief's (§7.1) and are
+  # NOT swept.
+  stratum_names: [low_prior, medium_prior, high_prior]
+  stratum_weights: [0.30, 0.50, 0.20]
+
+  # Marginal means/SDs of the eq. (15) state vector for the *medium* stratum,
+  # before the per-stratum shifts below. Truncated to [0, 1] after the copula.
+  state_means:
+    K: 0.35
+    M: 0.30
+    R: 0.30
+    C: 0.50
+    D: 0.40
+  state_sds:
+    K: {low: 0.10, medium: 0.15, high: 0.20}
+    M: {low: 0.10, medium: 0.15, high: 0.20}
+    R: {low: 0.10, medium: 0.15, high: 0.20}
+    C: {low: 0.10, medium: 0.15, high: 0.20}
+    D: {low: 0.10, medium: 0.15, high: 0.20}
+
+  # Additive shifts to the K and M marginal means, one per stratum, in stratum
+  # order. §7.1 says the strata differ in prior knowledge; K and M are the two
+  # components that carry it.
+  stratum_k_shift: {low: [-0.10, 0.0, 0.10], medium: [-0.20, 0.0, 0.20], high: [-0.30, 0.0, 0.30]}
+  stratum_m_shift: {low: [-0.05, 0.0, 0.05], medium: [-0.10, 0.0, 0.10], high: [-0.15, 0.0, 0.15]}
+
+  # Gaussian copula correlation, in state order [K, M, R, C, D]. Must be
+  # symmetric and positive semi-definite; the loader checks both.
+  # Rationale: knowledge, memory and reasoning co-vary positively; dependence
+  # is negatively related to all three; calibration tracks knowledge weakly.
+  correlation:
+    - [1.00,  0.55,  0.45,  0.30, -0.35]
+    - [0.55,  1.00,  0.40,  0.20, -0.25]
+    - [0.45,  0.40,  1.00,  0.25, -0.45]
+    - [0.30,  0.20,  0.25,  1.00, -0.20]
+    - [-0.35, -0.25, -0.45, -0.20, 1.00]
+
+  # eq. (16) per-learner parameters.
+  # alpha_i ~ LogNormal(mu, sigma)  -- knowledge acquisition rate
+  mu_alpha: {low: -2.60, medium: -2.30, high: -2.00}
+  sigma_alpha: {low: 0.25, medium: 0.40, high: 0.55}
+  # delta_i ~ Beta(a, b)            -- knowledge forgetting rate
+  a_delta: {low: 2.0, medium: 2.0, high: 2.0}
+  b_delta: {low: 120.0, medium: 80.0, high: 50.0}
+
+  # theta_0 (initial ability, logit scale) from K. Documented map:
+  #   theta = theta_intercept + theta_slope * (K - theta_center)
+  theta_intercept: 0.0
+  theta_slope: {low: 3.0, medium: 4.0, high: 5.0}
+  theta_center: 0.5
+
+  # Per-learner calibration bias entering the confidence model, and a
+  # per-learner latency multiplier ~ LogNormal(0, speed_sigma).
+  confidence_bias_mu: 0.0
+  confidence_bias_sd: {low: 0.05, medium: 0.10, high: 0.15}
+  speed_sigma: {low: 0.15, medium: 0.25, high: 0.35}
+
+# ---------------------------------------------------------------------------
+# Curriculum adapter (§5.1 item 5 -> the logit-scale difficulty of eq. 17-18)
+# ---------------------------------------------------------------------------
+curriculum:
+  # b_u = b_intercept + b_slope * (difficulty - difficulty_center)
+  # ASSUMPTION: the brief never states the scale of b_u. See
+  # docs/phase3_assumptions.md; open question for the supervisor.
+  b_intercept: 0.0
+  b_slope: {low: 0.4, medium: 0.6, high: 0.8}
+  difficulty_center: 3.0
+  # §5.1 item 5 declares difficulty as an integer 1-5. Out-of-range raises.
+  difficulty_min: 1
+  difficulty_max: 5
+  # Decision gate 16: 10 pilot units before the corpus is expanded. Fixed --
+  # a gate is not a sensitivity knob.
+  min_units: 10
+
+# ---------------------------------------------------------------------------
+# Response engine (§7.3, eq. 17-18)
+# ---------------------------------------------------------------------------
+response:
+  # P(correct)         = logistic(theta - b_u + rho*R + kappa*M)
+  # P(correct|support) = logistic(theta - b_u + rho*R + kappa*M + omega*h)
+  rho: {low: 0.7, medium: 1.0, high: 1.3}
+  kappa: {low: 0.5, medium: 0.8, high: 1.1}
+  # ASSUMPTION: omega has no anchor in the brief or in data. Supervisor question.
+  omega: {low: 1.5, medium: 2.5, high: 3.5}
+
+  # Additive difficulty offsets for the transfer probes, on the b_u scale.
+  # ASSUMPTION: the brief names near/far transfer but gives no difficulty model.
+  near_b_delta: {low: 0.3, medium: 0.5, high: 0.7}
+  far_b_delta: {low: 0.8, medium: 1.2, high: 1.6}
+  # Offset applied to the in-episode transfer question (step 5 of §3.1).
+  transfer_b_delta: {low: 0.3, medium: 0.5, high: 0.7}
+
+  # confidence = clip(p_correct + bias_i + eps, 0, 1), eps ~ N(0, sd).
+  # ASSUMPTION: the brief requires a confidence to score eq. 27 but gives no
+  # confidence model. Without the noise term the Brier score is a deterministic
+  # function of p_correct and carries no calibration information.
+  confidence_noise_sd: {low: 0.04, medium: 0.08, high: 0.12}
+
+  # P(support requested) = logistic(s0 + s1*D - s2*(theta - b_u))
+  # ASSUMPTION: §7.7 requires a dependence outcome ("probability of requesting
+  # assistance before an independent attempt"), so a request process must
+  # exist; the brief gives no equation for it.
+  request_intercept: {low: -1.5, medium: -1.0, high: -0.5}
+  request_dependence_slope: {low: 1.5, medium: 2.0, high: 2.5}
+  request_ability_slope: {low: 0.3, medium: 0.5, high: 0.7}
+
+  # latency_proxy = speed_i * (base + per_hint*hint_depth + attempt*attempt_made)
+  # seconds. ASSUMPTION: §4.2 requires the column; the brief gives no model.
+  latency_base_s: {low: 30.0, medium: 45.0, high: 60.0}
+  latency_per_hint_s: {low: 12.0, medium: 20.0, high: 28.0}
+  latency_attempt_s: {low: 20.0, medium: 30.0, high: 40.0}
+
+# ---------------------------------------------------------------------------
+# Deterministic tutor policies (§3.4). The tutor is code, never an LLM.
+# ---------------------------------------------------------------------------
+support:
+  # Prewritten 3-level hint ladder, h per depth. `traditional` uses these
+  # verbatim (non-adaptive); `ai_scaffolding` uses `scaffolding_h`.
+  hint_ladder_h: {low: [0.15, 0.30, 0.45], medium: [0.25, 0.45, 0.65], high: [0.35, 0.60, 0.85]}
+  scaffolding_h: {low: [0.12, 0.28, 0.44], medium: [0.20, 0.40, 0.60], high: [0.28, 0.52, 0.76]}
+  substitution_h: {low: 0.80, medium: 0.90, high: 1.00}
+  static_ai_h: {low: 0.20, medium: 0.35, high: 0.50}
+
+  # How well the hint targeted the learner's actual error, in [0, 1].
+  # `traditional` and `static_ai` are prewritten and cannot diagnose;
+  # `ai_scaffolding` diagnoses with probability `diagnosis_accuracy`, drawn
+  # from the `tutor` seed stream.
+  adaptation_traditional: {low: 0.25, medium: 0.35, high: 0.45}
+  adaptation_static_ai: {low: 0.20, medium: 0.30, high: 0.40}
+  # base + gain is the adaptation a successfully diagnosed error receives, and it
+  # is a proportion, so the sum must stay inside [0, 1]. `SupportConfig` refuses
+  # a pair that sums above 1 rather than clipping it, which is why the `high` arm
+  # of the gain is not simply the high arm of the base.
+  adaptation_scaffolding_base: {low: 0.35, medium: 0.45, high: 0.50}
+  adaptation_scaffolding_gain: {low: 0.35, medium: 0.45, high: 0.48}
+  adaptation_substitution: {low: 0.10, medium: 0.20, high: 0.30}
+  diagnosis_accuracy: {low: 0.65, medium: 0.80, high: 0.95}
+
+  # mismatch = clip(|b_u - theta| / mismatch_scale, 0, 1) -- difficulty misfit.
+  mismatch_scale: {low: 2.0, medium: 3.0, high: 4.0}
+
+  # Support-persistence policy (§3.4), orthogonal to condition. Applied as a
+  # multiplier on h as a function of recent independent-success history.
+  #   immediate_withdrawal : h -> 0 once independent successes >= threshold
+  #   gradual_fading       : h -> h * fade_base ** independent_successes
+  #   persistent           : h unchanged
+  persistence_policy: gradual_fading
+  fade_base: {low: 0.60, medium: 0.75, high: 0.90}
+  withdrawal_success_threshold: {low: 1, medium: 2, high: 3}
+
+# ---------------------------------------------------------------------------
+# Effort (§7.4, eq. 19)
+#   E = logistic(a0 + a1*Attempt + a2*Retrieval + a3*Explanation
+#                - a4*AnswerProvided)
+# ---------------------------------------------------------------------------
+effort:
+  a0: {low: -1.4, medium: -1.0, high: -0.6}
+  a1: {low: 0.9, medium: 1.2, high: 1.5}
+  a2: {low: 0.6, medium: 0.8, high: 1.0}
+  a3: {low: 0.7, medium: 1.0, high: 1.3}
+  a4: {low: 1.5, medium: 2.0, high: 2.5}
+
+  # §10.3 zero-effort negative control. Applied as an override, never as the
+  # baseline. NOTE a4 is zeroed too: with a4 != 0 the substitution condition
+  # still differs through AnswerProvided, so effort-mediated differences would
+  # not vanish and the control would not be a control. Recorded as a deviation
+  # from the task spec's "a1 = a2 = a3 = 0" in docs/phase3_assumptions.md.
+  zero_effort_override:
+    a1: 0.0
+    a2: 0.0
+    a3: 0.0
+    a4: 0.0
+
+# ---------------------------------------------------------------------------
+# Instructional effectiveness (§7.4, eq. 20)
+#   F = logistic(f0 + f1*Correct_u + f2*Coverage_u + f3*Adaptation
+#                - f4*Mismatch)
+# ---------------------------------------------------------------------------
+# f0..f2 place F in mid-range rather than near its ceiling. With a large
+# intercept the logistic saturates, `Adaptation` stops mattering, and the
+# `traditional` / `ai_scaffolding` contrast -- which exists *only* through
+# adaptation -- collapses to nothing for arithmetic reasons rather than
+# substantive ones.
+effectiveness:
+  f0: {low: -1.8, medium: -1.5, high: -1.2}
+  f1: {low: 0.8, medium: 1.0, high: 1.2}
+  f2: {low: 0.6, medium: 0.8, high: 1.0}
+  f3: {low: 0.9, medium: 1.2, high: 1.5}
+  f4: {low: 1.2, medium: 1.5, high: 1.8}
+  # Used only when the units table carries no such column. The run logs a
+  # warning naming the missing column; it never substitutes silently.
+  coverage_default: 1.0
+  correctness_default: 1.0
+
+# ---------------------------------------------------------------------------
+# State updates (§7.6, eq. 21-25)
+# ---------------------------------------------------------------------------
+updates:
+  # eq. 21 uses alpha_i and delta_i directly (population group) -- no extra
+  # coefficient exists in the brief, so none is exposed here.
+
+  # eq. 22  M <- (1 - delta_M,i)*M + eta_M*Retrieval + eta_C*CorrectAfterError
+  # ASSUMPTION: eq. 22 subscripts delta_M by learner but eq. 16 draws only
+  # alpha_i and delta_i, so delta_M,i is derived:
+  #     delta_M,i = m_decay_scale * delta_i
+  # m_decay_scale < 1 makes the memory trace outlast expressed knowledge.
+  m_decay_scale: {low: 0.5, medium: 1.0, high: 1.5}
+  eta_M: {low: 0.010, medium: 0.015, high: 0.025}
+  eta_C: {low: 0.010, medium: 0.015, high: 0.025}
+
+  # eq. 23  R <- R + eta_R*E*TransferSuccess - eta_O*Offloading
+  #
+  # ⚠️ Eq. 23 has no saturating term -- no `(1 - R)` headroom and no decay -- so R
+  # is a bounded random walk with no interior equilibrium. Whichever term wins on
+  # average, R eventually pins at 0 or 1 and every later update is clipped. These
+  # rates are therefore set so that pinning does not happen inside a 120-episode
+  # run: at eta_R = 0.005 a learner with E ~ 0.8 and near-perfect transfer gains
+  # ~0.004/episode, which is ~0.5 over the whole run. The same reasoning fixes
+  # eta_D / eta_F below. See docs/phase3_assumptions.md and the supervisor open
+  # question -- this is a property of the equations, not of these numbers.
+  eta_R: {low: 0.003, medium: 0.005, high: 0.008}
+  eta_O: {low: 0.003, medium: 0.005, high: 0.008}
+
+  # eq. 24 is implemented as 1 - running Brier (brief §7.6 mandates this).
+  # brier_max rescales to [0, 1]; 1.0 is the worst attainable Brier score for
+  # a binary outcome with a forecast in [0, 1].
+  brier_max: 1.0
+
+  # eq. 25  D <- D + eta_D*SupportUsed - eta_F*SupportFaded*IndependentSuccess
+  # Same structural caveat as eq. 23: no saturating term, so these rates are set
+  # to keep D off its bounds for the length of a run rather than to express a
+  # belief about how fast dependence forms.
+  eta_D: {low: 0.006, medium: 0.010, high: 0.016}
+  eta_F: {low: 0.006, medium: 0.010, high: 0.016}
+
+# ---------------------------------------------------------------------------
+# Checkpoint assessments (§7.7)
+# ---------------------------------------------------------------------------
+checkpoints:
+  # Episode indices (0-based, evaluated *after* that episode) at which an
+  # all-support-removed assessment runs. Clipped to the run length.
+  episodes: [9, 19, 39, 79, 119]
+  # No-practice interval, in episodes, applied as decay-only to a copy of the
+  # state before the retention probe.
+  retention_interval_episodes: {low: 5, medium: 10, high: 20}
+  n_trained_items: {low: 5, medium: 10, high: 20}
+  n_near_items: {low: 3, medium: 5, high: 10}
+  n_far_items: {low: 3, medium: 5, high: 10}
+  # Support level used for the eq. 26 supported-accuracy probe.
+  probe_h: {low: 0.3, medium: 0.5, high: 0.7}
+  # ASSUMPTION: §7.7 requires an expected calibration error but names no bin
+  # count. 10 equal-width bins on [0, 1].
+  ece_bins: 10
+  # §10.6 falsification threshold: the minimum absolute difference in
+  # post-withdrawal unaided accuracy for scaffolding and substitution to count
+  # as distinguishable at a checkpoint.
+  separation_threshold: {low: 0.01, medium: 0.02, high: 0.05}
+
+# ---------------------------------------------------------------------------
+# Seeding (§10.1). One master seed; per-stream seeds via SeedSequence.spawn.
+# The global np.random functions are never called anywhere in this repo.
+# ---------------------------------------------------------------------------
+seeds:
+  master: 20250727
+  streams: [population, responses, tutor, checkpoints]
+
+# ---------------------------------------------------------------------------
+# Response-engine selection (§10.2). Swapping engines is this one line.
+# ---------------------------------------------------------------------------
+engine:
+  name: logistic          # logistic | minitaur
+
+# ---------------------------------------------------------------------------
+# Run scope. Not one of the groups the task spec enumerates, but the §4 CLI
+# needs defaults for the values it overrides.
+# ---------------------------------------------------------------------------
+run:
+  episodes: {low: 40, medium: 120, high: 120}
+  conditions: [traditional, ai_scaffolding, ai_substitution]
+  # Episodes buffered before a parquet row group / CSV chunk is flushed.
+  chunk_episodes: 10

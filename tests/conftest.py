@@ -1,13 +1,19 @@
-"""Shared fixtures for the Phase II test suite.
+"""Shared fixtures for the Phase II and Phase III test suites.
 
 Every test in this suite runs on CPU with no GPU and no network. Nothing here
 imports torch, tribev2, nilearn or huggingface_hub, and nothing downloads
 anything: the atlas is a toy fixture and the predictions are small synthetic
 arrays with hand-checkable properties.
+
+The Phase III fixtures at the bottom load the *real* `config/learners.yaml` with
+a small population, rather than defining a parallel set of parameter values. A
+second copy of the parameters in a fixture would drift from the config the runs
+actually use, and the tests would then be checking something nobody runs.
 """
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -23,6 +29,9 @@ from src.tribe.config import (
 )
 
 PINNED_REVISION = "a" * 40
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+LEARNER_CONFIG_PATH = PROJECT_ROOT / "config" / "learners.yaml"
 
 
 @pytest.fixture
@@ -160,3 +169,83 @@ def synthetic_metrics() -> pd.DataFrame:
                     }
                 )
     return pd.DataFrame(rows)
+
+
+# ---------------------------------------------------------------------------
+# Phase III: the synthetic learner engine
+# ---------------------------------------------------------------------------
+
+from src.learners.config import load_learner_config  # noqa: E402
+from src.learners.curriculum import SYNTHETIC_PLACEHOLDER, load_curriculum, units_to_views  # noqa: E402
+from src.learners.effort import resolve_effectiveness_columns  # noqa: E402
+from src.learners.population import init_population, init_state  # noqa: E402
+from src.learners.seeds import SeedStreams  # noqa: E402
+
+#: Small enough that the whole suite stays fast, large enough that a mean over
+#: learners is not dominated by sampling noise.
+TEST_N_LEARNERS = 400
+TEST_N_EPISODES = 12
+TEST_N_UNITS = 12
+
+
+def make_units_frame(n_units: int = TEST_N_UNITS, *, provenance: str = SYNTHETIC_PLACEHOLDER):
+    """A synthetic units table spanning the full §5.1 difficulty range."""
+    difficulties = np.resize(np.array([1, 2, 3, 4, 5]), n_units)
+    return pd.DataFrame(
+        {
+            "unit_id": [f"SYNTH_test_{i:03d}" for i in range(n_units)],
+            "domain": ["synthetic_domain"] * n_units,
+            "concept": [f"synthetic_concept_{i:03d}" for i in range(n_units)],
+            "difficulty": difficulties,
+            "reference_answer": [f"SYNTH_ANSWER_{i:03d}" for i in range(n_units)],
+            "misconception_answer": [f"SYNTH_MISCONCEPTION_{i:03d}" for i in range(n_units)],
+            "misconception_description": [f"placeholder error mode {i:03d}" for i in range(n_units)],
+            "provenance": [provenance] * n_units,
+        }
+    )
+
+
+@pytest.fixture
+def learner_config():
+    """The real `config/learners.yaml`, with a small population and short run."""
+    return load_learner_config(
+        LEARNER_CONFIG_PATH, n_learners=TEST_N_LEARNERS, episodes=TEST_N_EPISODES
+    )
+
+
+@pytest.fixture
+def units_csv(tmp_path: Path) -> Path:
+    """A placeholder units table on disk."""
+    path = tmp_path / "units_placeholder.csv"
+    make_units_frame().to_csv(path, index=False)
+    return path
+
+
+@pytest.fixture
+def units_frame(units_csv: Path, learner_config):
+    """Units loaded through `load_curriculum`, with `b_u` attached."""
+    return load_curriculum(units_csv, learner_config.curriculum)
+
+
+@pytest.fixture
+def unit_views(units_frame, learner_config):
+    """Immutable per-unit views, with `coverage`/`correctness` resolved."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        resolved, _ = resolve_effectiveness_columns(units_frame, learner_config.effectiveness)
+    return units_to_views(resolved)
+
+
+@pytest.fixture
+def learner_streams(learner_config) -> SeedStreams:
+    return SeedStreams(learner_config.seeds.master, learner_config.seeds.streams)
+
+
+@pytest.fixture
+def population_frame(learner_config, learner_streams):
+    return init_population(learner_config.population.n_learners, learner_config, learner_streams)
+
+
+@pytest.fixture
+def learner_state(population_frame):
+    return init_state(population_frame)
