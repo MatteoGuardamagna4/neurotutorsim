@@ -26,9 +26,29 @@ data/interim/units/*
 !data/interim/units/be_001.json
 data/processed/*
 !data/processed/units.csv
+# Phase III outputs. Both are already covered by the rules above (`*.parquet`
+# globally, `data/processed/*` for the CSV), but they are named explicitly
+# because they are the two largest things a Phase III run produces: at 5,000
+# learners x 120 episodes x 3 conditions, responses.csv is ~5.4M rows. Neither is
+# a source: both are rebuilt from the config hash + master seed recorded in the
+# run log.
+data/processed/*.parquet
+data/processed/responses.csv
+data/processed/learner_state.parquet
+
+# `outputs/` is ignored wholesale, which already covers outputs/logs/. Named here
+# so the Phase III run log -- config hash, seed, git commit, package versions,
+# clip counts -- is visibly a per-run artifact rather than something that was
+# forgotten.
 outputs/
+outputs/logs/
 cache/
 checkpoints/
+
+# data/synthetic/ is deliberately NOT ignored. The placeholder units table is a
+# few KB and committing it makes a development run reproducible from a clean
+# clone. It is stamped `synthetic_placeholder` on every row, and no output
+# derived from it is a project result (docs/phase3_assumptions.md §16).
 
 # Phase II cache roots. Parcel tables and vertex arrays are build products of a
 # GPU run; reproducibility comes from the pinned revision + config + cache keys,
